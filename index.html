@@ -35,13 +35,15 @@
     position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     padding:calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
   }
-  .mascot-wrap { width:min(360px, 84vw, 64vh); margin:0; }
+  .mascot-wrap { width:min(360px, 84vw, 64vh); margin:0; position:relative; }
   .mascot { display:block; width:100%; height:auto; overflow:visible; touch-action:none; }
-  /* no outlines: each plane is stroked thinly in its own colour only to seal the
-     anti-aliasing hairlines between neighbours; planes are painted far-to-near */
-  .mascot .fills polygon { stroke-width:0.7; stroke-linejoin:round; }
-  .mascot .eye { fill:#F2F0E9; stroke:none; }
-  .mascot .pupil { fill:#070707; stroke:none; }
+  /* the head is painted into a tiny canvas (one pixel per 12-unit cell) that is scaled up
+     with hard pixel edges: that is the slight pixelation. The SVG underneath only holds the
+     soft ground shadow. */
+  .mascot-px {
+    position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+  }
 
   .hint {
     position:fixed; left:22px; top:calc(20px + env(safe-area-inset-top, 0px));
@@ -50,7 +52,6 @@
   }
   .hint.gone { opacity:0; }
 
-  /* minimal motion: a slow 2-3px hover and a matching shadow breath */
   /* breathing (a slow nod with a slight rise and fall) and the shadow's pulse are driven
      from the frame loop so they stay in step with each other and with the cursor follow */
   .mascot .shadow { transform-box:fill-box; transform-origin:center; }
@@ -61,40 +62,13 @@
 <div class="floor" aria-hidden="true"></div>
 <main class="stage">
   <figure class="mascot-wrap">
-    <svg class="mascot" viewBox="-540 -500 1080 1050" width="1080" height="1050" role="img" aria-label="Spiky low-poly cat mascot head that turns to follow your cursor">
+    <svg class="mascot" viewBox="-540 -500 1080 1056" width="1080" height="1056" role="img" aria-label="Spiky low-poly cat mascot head that turns to follow your cursor">
       <defs>
-        <!-- this frame's head silhouette (rebuilt every frame): the eyes are clipped to it so a
-             flat eye never sticks out past the head as it turns away -->
-        <clipPath id="head-clip"><path id="head-clip-path" d=""/></clipPath>
-        <!-- slight pixelation of the whole head (rim and eyes included): one colour is sampled
-             from each 12-unit cell of a grid fixed to the head and spread over the cell -->
-        <filter id="pixelate" filterUnits="userSpaceOnUse" x="-540" y="-560" width="1080" height="1110">
-          <feFlood x="-536" y="-556" width="4" height="4"/>
-          <feComposite x="-540" y="-560" width="12" height="12"/>
-          <feTile result="dots"/>
-          <feComposite in="SourceGraphic" in2="dots" operator="in"/>
-          <feMorphology operator="dilate" radius="4"/>
-        </filter>
         <filter id="shadow-blur" x="-30%" y="-100%" width="160%" height="300%"><feGaussianBlur stdDeviation="14"/></filter>
-        <!-- white rim: the rendered silhouette (whatever the angle) grown by 11 units (about one
-             pixelation cell, so the pixelated rim never breaks up) and painted
-             white; a near-black copy grown by 1.5 sits on top so the anti-aliased joins between
-             planes show dark rather than white; then the head itself -->
-        <filter id="rim" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
-          <feMorphology in="SourceAlpha" operator="dilate" radius="11" result="outer"/>
-          <feFlood flood-color="#ffffff"/>
-          <feComposite in2="outer" operator="in" result="rim"/>
-          <feMorphology in="SourceAlpha" operator="dilate" radius="1.5" result="inner"/>
-          <feFlood flood-color="#040404"/>
-          <feComposite in2="inner" operator="in" result="base"/>
-          <feMerge><feMergeNode in="rim"/><feMergeNode in="base"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
       </defs>
       <ellipse class="shadow" cx="0" cy="500" rx="300" ry="30" fill="#000" opacity=".5" filter="url(#shadow-blur)"/>
-      <g class="head" filter="url(#pixelate)">
-        <g class="fills" filter="url(#rim)"></g>
-      </g>
     </svg>
+    <canvas class="mascot-px" width="90" height="88" aria-hidden="true"></canvas>
   </figure>
 </main>
 <div class="hint" id="hint">Move your cursor</div>
@@ -123,24 +97,14 @@
   const MESH = JSON.parse(document.getElementById('mascot-mesh').textContent);
   const V = MESH.v, F = MESH.f, G = MESH.g;   // triangles, and the drawn plane each belongs to
   const GN = new Float64Array((Math.max(...G) + 1) * 3), tarea = new Float64Array(F.length);
-  const fills = document.querySelector('.mascot .fills');
-  const polys = F.map(() => fills.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'polygon')));
-  // eyes: flat rings lying just in front of the face panel, painted in the same far-to-near list
   const EYES = MESH.eyes || [];
-  // each eye: a group clipped to the head, holding the white and, on top, a separate solid
-  // pupil clipped to the white's current opening (so a closing lid covers it, never squashes it)
-  const SVGNS = 'http://www.w3.org/2000/svg', defs = document.querySelector('.mascot defs');
-  const eyeParts = EYES.map((_, k) => {
-    const g = fills.appendChild(document.createElementNS(SVGNS, 'g')); g.setAttribute('clip-path', 'url(#head-clip)');
-    const white = g.appendChild(document.createElementNS(SVGNS, 'path')); white.setAttribute('class', 'eye');
-    const clip = defs.appendChild(document.createElementNS(SVGNS, 'clipPath')); clip.id = `eye-open-${k}`;
-    const clipShape = clip.appendChild(document.createElementNS(SVGNS, 'path'));
-    const pupil = g.appendChild(document.createElementNS(SVGNS, 'path')); pupil.setAttribute('class', 'pupil'); pupil.setAttribute('clip-path', `url(#eye-open-${k})`);
-    return { g, white, clipShape, pupil };
-  });
-  const eyeEls = eyeParts.map(e => e.g);
-  const clipPath = document.getElementById('head-clip-path');
-  const els = [...polys, ...eyeEls];
+  // canvas in the SVG's coordinates (viewBox -540 -500 1080 1056), one pixel per CELL units
+  const CELL = 12, VBX = -540, VBY = -500;
+  const canvas = document.querySelector('.mascot-px'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  canvas.width = 1080 / CELL; canvas.height = 1056 / CELL;
+  const COLOR = { base: '#040404', white: '#F2F0E9', pupil: '#070707' };
+  const BASE = 1.5;   // dark base grown beyond the silhouette (units), so joins between planes show dark
+  const rimMask = new Uint8Array((1080 / CELL) * (1056 / CELL));
 
   // ------------------------------------------------------------------ look
   // the cursor at either screen edge turns the head past a side view
@@ -185,10 +149,11 @@
   // A slow loop: the head tips up as it rises and down as it settles, like a gentle nod,
   // with the shadow tightening a touch as the head lifts.
   const BREATH = { period: 4.29, nod: 3.15 * D2R, rise: 5.25 };   // seconds per breath, nod amplitude, rise in SVG units (~1.75px)
-  const headEl = document.querySelector('.mascot .head'), shadowEl = document.querySelector('.mascot .shadow');
+  const shadowEl = document.querySelector('.mascot .shadow');
+  let rise = 0;
   function breathe(t) {
     const w = reduceMotion ? 0 : Math.sin(2 * Math.PI * t / BREATH.period);   // +1 at the top of the in-breath
-    headEl.setAttribute('transform', `translate(0 ${(-BREATH.rise * w).toFixed(2)})`);
+    rise = -BREATH.rise * w;
     shadowEl.style.transform = `scale(${(0.975 - 0.02625 * w).toFixed(4)}, ${(0.965 - 0.03675 * w).toFixed(4)})`;
     shadowEl.style.opacity = (0.55 - 0.0525 * w).toFixed(3);
     return -BREATH.nod * w;   // negative pitch tips the face up
@@ -236,9 +201,7 @@
 
   // ------------------------------------------------------------------ render
   const proj = new Float64Array(V.length * 3);   // rotated x, y (screen, y down) and z (toward viewer) per vertex
-  const order = [...F.keys(), ...EYES.map((_, i) => F.length + i)];
-  const depth = new Float64Array(F.length + EYES.length);
-  const f1 = n => Math.round(n * 10) / 10;
+  const depth = new Float64Array(F.length);
 
   function render(yaw, pitch) {
     const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -274,45 +237,67 @@
       depth[fi] = zsum / 3; tarea[fi] = area;
       const g = G[fi]; GN[g * 3] += nx; GN[g * 3 + 1] += ny; GN[g * 3 + 2] += nz;
     }
-    // 2. draw: every triangle of a plane takes the plane's one shade
-    let clipD = '';
+    // 2. visible triangles, each taking its plane's one shade; the silhouette is their union
+    const items = [], head = new Path2D();
     for (let fi = 0; fi < F.length; fi++) {
-      const el = polys[fi];
-      if (!(tarea[fi] > 0)) { el.style.display = 'none'; continue; }
+      if (!(tarea[fi] > 0)) continue;
       const g = G[fi];
       let nx = GN[g * 3], ny = GN[g * 3 + 1], nz = GN[g * 3 + 2];
       const l = Math.hypot(nx, ny, nz) || 1;
       if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
       const i = Math.pow(Math.max(0, (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / l), 1.2);
       const c = Math.round(4 + 24 * i);   // near-black: planes range from #040404 to about #1C1C1C
-      el.style.display = '';
-      el.setAttribute('fill', `rgb(${c},${c},${c})`);
-      el.setAttribute('stroke', `rgb(${c},${c},${c})`);
-      const f = F[fi];
-      const pts = `${f1(proj[f[0] * 3])},${f1(proj[f[0] * 3 + 1])} ${f1(proj[f[1] * 3])},${f1(proj[f[1] * 3 + 1])} ${f1(proj[f[2] * 3])},${f1(proj[f[2] * 3 + 1])}`;
-      el.setAttribute('points', pts);
-      clipD += 'M' + pts.replace(/ /g, 'L') + 'Z';
+      const f = F[fi], tri = new Path2D();
+      tri.moveTo(proj[f[0] * 3], proj[f[0] * 3 + 1]); tri.lineTo(proj[f[1] * 3], proj[f[1] * 3 + 1]); tri.lineTo(proj[f[2] * 3], proj[f[2] * 3 + 1]); tri.closePath();
+      head.addPath(tri);
+      items.push({ z: depth[fi], tri, color: `rgb(${c},${c},${c})` });
     }
-    clipPath.setAttribute('d', clipD);
-    // 3. eyes: project each ring through the same turn; hide an eye once its face turns away,
-    //    and sort it just in front of the panel it lies on so nearer parts of the head cover it
-    EYES.forEach((e, k) => {
-      const { g, white, clipShape, pupil } = eyeParts[k];
-      const n = e.n, nx1 = n[0] * cy + n[2] * sy, nz1 = -n[0] * sy + n[2] * cy, nz2 = -n[1] * sp + nz1 * cp;
-      if (nz2 < 0.15) { g.style.display = 'none'; depth[F.length + k] = -1e9; return; }   // hidden once its face turns away
+    // 3. eyes: drawn on their face plane, hidden once that face turns away, and sorted just in
+    //    front of what they lie on so nearer parts of the head cover them
+    EYES.forEach(e => {
+      const n = e.n, nz1 = -n[0] * sy + n[2] * cy, nz2 = -n[1] * sp + nz1 * cp;
+      if (nz2 < 0.15) return;
       const onPlane = ([x, y]) => [x, y, e.c[2] + e.dzdx * (x - e.c[0]) + e.dzdy * (y - e.c[1])];
       let zmax = -Infinity;
-      const path = ring => 'M' + ring.map(p => { const q = project(onPlane(p)); if (q[2] > zmax) zmax = q[2]; return `${f1(q[0])},${f1(q[1])}`; }).join('L') + 'Z';
+      const path = ring => { const p = new Path2D(); ring.forEach(([x, y], k) => { const q = project(onPlane([x, y])); if (q[2] > zmax) zmax = q[2]; k ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1]); }); p.closePath(); return p; };
       const shape = eyeShape(e, blinkAmount);
-      const wd = path(shape.white);
-      white.setAttribute('d', wd); clipShape.setAttribute('d', wd);
-      if (shape.pupil) { pupil.style.display = ''; pupil.setAttribute('d', path(shape.pupil)); } else pupil.style.display = 'none';
-      g.style.display = '';
-      depth[F.length + k] = zmax + 10;   // just in front of what it lies on
+      items.push({ z: 0, eye: { white: path(shape.white), pupil: shape.pupil && path(shape.pupil) } });
+      items[items.length - 1].z = zmax + 10;
     });
-    // painter's order: far first
-    order.sort((a, b) => depth[a] - depth[b]);
-    for (const i of order) fills.appendChild(els[i]);
+    items.sort((a, b) => a.z - b.z);   // painter's order: far first
+
+    // 4. paint: dark base (silhouette grown by BASE, so joins between planes show dark), the
+    //    planes and eyes far-to-near, then snap the edge to whole pixels and add the rim
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(1 / CELL, 0, 0, 1 / CELL, -VBX / CELL, (rise - VBY) / CELL);
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
+    ctx.lineWidth = 1;
+    for (const it of items) {
+      if (it.tri) { ctx.fillStyle = ctx.strokeStyle = it.color; ctx.fill(it.tri); ctx.stroke(it.tri); continue; }
+      ctx.save(); ctx.clip(head);                                     // a turned-away eye never sticks out past the head
+      ctx.fillStyle = COLOR.white; ctx.fill(it.eye.white);
+      if (it.eye.pupil) { ctx.clip(it.eye.white); ctx.fillStyle = COLOR.pupil; ctx.fill(it.eye.pupil); }   // the lid covers the pupil
+      ctx.restore();
+    }
+    // hard pixel edge against the page (each pixel is head or background), then the white rim:
+    // every background pixel touching the head (8 neighbours) turns white, one art pixel wide
+    const W = canvas.width, H = canvas.height;
+    const img = ctx.getImageData(0, 0, W, H), px = img.data;
+    for (let k = 3; k < px.length; k += 4) px[k] = px[k] < 128 ? 0 : 255;
+    rimMask.fill(0);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (px[(y * W + x) * 4 + 3]) continue;
+      let touch = false;
+      for (let dy = -1; dy <= 1 && !touch; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H && px[(ny * W + nx) * 4 + 3]) { touch = true; break; }
+      }
+      if (touch) rimMask[y * W + x] = 1;
+    }
+    for (let i = 0; i < rimMask.length; i++) if (rimMask[i]) { const k = i * 4; px[k] = px[k + 1] = px[k + 2] = 255; px[k + 3] = 255; }
+    ctx.putImageData(img, 0, 0);
   }
 
   // ------------------------------------------------------------------ frame
