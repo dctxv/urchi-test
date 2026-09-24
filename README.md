@@ -12,9 +12,9 @@ exists for now; the other expressions and their controls come later.
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a
   few lines of vanilla JS turn toward the cursor, back-face cull, flat-shade from one
   overhead light and paint far-to-near every frame into a tiny canvas (one pixel per
-  9-unit cell) shown scaled up with hard pixel edges, which gives the slight
+  7.5-unit cell) shown scaled up with hard pixel edges, which gives the slight
   pixelation. The white rim is built on that pixel grid: every background pixel touching
-  the head turns white. The SVG underneath holds only the soft ground shadow. No build
+  the head turns white. The empty SVG underneath only sizes the box. No build
   step; open the file or serve the folder.
 - `ref/head-half.png` — the half-face plane diagram (blue planes, green edges) the front
   of the head is traced from and mirrored.
