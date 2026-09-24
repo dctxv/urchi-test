@@ -125,8 +125,11 @@
   if (!reduceMotion) {
     window.addEventListener('pointermove', pointerAt, { passive: true });
     window.addEventListener('pointerdown', pointerAt, { passive: true });
-    window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') P.has = false; });
-    window.addEventListener('pointerout', e => { if (!e.relatedTarget) P.has = false; });
+    // a touch has no hover: hold the gaze where the finger was for a moment, then drift back
+    let release = 0;
+    window.addEventListener('pointerdown', () => clearTimeout(release));
+    window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') release = setTimeout(() => { P.has = false; }, 1400); });
+    window.addEventListener('pointerout', e => { if (!e.relatedTarget && e.pointerType !== 'touch') P.has = false; });
     window.addEventListener('blur', () => { P.has = false; });
   } else hint.classList.add('gone');
 
