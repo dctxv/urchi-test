@@ -14,7 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const src = resolve(ROOT, 'ref/head-half.png'), out = resolve(ROOT, 'tools/mascot-facets.json');
-const minSize = 60, SNAP = 7;
+const minSize = 60, SNAP = 10, HALF_LINE = 2.4;   // green edge lines are ~5px wide: grow each plane by half of that
 const EYE_DX = 184, EYE_Y = 655;   // socket centres measured on ref/head-front.png, relative to the centre line
 const data = 'data:image/png;base64,' + readFileSync(src).toString('base64');
 const browser = await chromium.launch();
@@ -74,21 +74,65 @@ await browser.close();
 const t = result;
 const AXIS = t.axis;
 const regions = t.regions;
+// clean-up: merge near-duplicate vertices, then drop, one at a time, the vertex that deviates least
+// from the line between its neighbours while that deviation is under eps (stair-steps on anti-aliased edges)
+const straighten = (poly, eps) => {
+  let out = poly.filter((p, i) => Math.hypot(p[0] - poly[(i + 1) % poly.length][0], p[1] - poly[(i + 1) % poly.length][1]) > 2);
+  const dev = (i) => { const a = out[(i + out.length - 1) % out.length], b = out[(i + 1) % out.length], p = out[i]; const dx = b[0]-a[0], dy = b[1]-a[1]; const l = Math.hypot(dx, dy) || 1; return Math.abs((p[0]-a[0]) * dy - (p[1]-a[1]) * dx) / l; };
+  while (out.length > 3) { let mi = -1, m = Infinity; for (let i = 0; i < out.length; i++) { const d = dev(i); if (d < m) { m = d; mi = i; } } if (m >= eps) break; out.splice(mi, 1); }
+  return out;
+};
+// clipped tips: where the raster cut an acute corner short, two vertices sit close together with
+// converging outer edges; replace the pair with the corner those edges actually meet at
+const sharpen = (poly, maxGap, nearOutline) => {
+  const out = poly.slice();
+  for (let i = 0; i < out.length && out.length > 3; i++) {
+    const n = out.length, a = out[(i + n - 1) % n], p = out[i], q = out[(i + 1) % n], b = out[(i + 2) % n];
+    if (Math.hypot(q[0] - p[0], q[1] - p[1]) > maxGap) continue;
+    const d1 = [p[0] - a[0], p[1] - a[1]], d2 = [q[0] - b[0], q[1] - b[1]];
+    const den = d1[0] * d2[1] - d1[1] * d2[0]; if (Math.abs(den) < 1e-6) continue;
+    const t = ((b[0] - a[0]) * d2[1] - (b[1] - a[1]) * d2[0]) / den;
+    const x = a[0] + d1[0] * t, y = a[1] + d1[1] * t;
+    if (t < 1 || Math.hypot(x - p[0], y - p[1]) > 80 || !nearOutline([x, y])) continue;   // only extend forward, onto the outline
+    out.splice(i, 2, [x, y]); i--;
+  }
+  return out;
+};
+// grow a polygon outward by w: shift every edge along its outward normal and intersect neighbours,
+// so a plane's corners land on the centre of the green line instead of half a line-width inside it
+function offset(poly, w) {
+  const n = poly.length;
+  let area = 0; for (let i = 0; i < n; i++) { const a = poly[i], b = poly[(i + 1) % n]; area += a[0] * b[1] - b[0] * a[1]; }
+  const sgn = area > 0 ? 1 : -1;   // orientation-independent outward normal
+  const lines = poly.map((a, i) => { const b = poly[(i + 1) % n]; const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; const nx = sgn * dy / l, ny = -sgn * dx / l; return { ax: a[0] + nx * w, ay: a[1] + ny * w, dx, dy }; });
+  return poly.map((p, i) => { const L1 = lines[(i + n - 1) % n], L2 = lines[i]; const den = L1.dx * L2.dy - L1.dy * L2.dx;
+    if (Math.abs(den) < 1e-6) return [L2.ax, L2.ay];
+    const t = ((L2.ax - L1.ax) * L2.dy - (L2.ay - L1.ay) * L2.dx) / den; const x = L1.ax + L1.dx * t, y = L1.ay + L1.dy * t;
+    return Math.hypot(x - p[0], y - p[1]) > 24 ? [L2.ax, L2.ay] : [x, y]; });   // cap runaway miters
+}
 // snap shared vertices: greedy clustering (no chaining); vertices on the centre line lock to the axis
+const rawSil = straighten(t.silhouette, 3);
+const distToSil = ([x, y], poly) => { let best = Infinity; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [ax, ay] = poly[j], [bx, by] = poly[i]; const dx = bx - ax, dy = by - ay; const l = dx * dx + dy * dy; const u = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0; best = Math.min(best, Math.hypot(ax + u * dx - x, ay + u * dy - y)); } return best; };
+const nearSil = p => distToSil(p, rawSil) < 10;
+for (const r of regions) r.poly = offset(sharpen(sharpen(straighten(r.poly, 3), 45, nearSil), 45, nearSil), HALF_LINE);
+t.silhouette = offset(sharpen(sharpen(rawSil, 45, () => true), 45, () => true), HALF_LINE);
 const all = []; regions.forEach(r => r.poly.forEach(p => all.push(p))); t.silhouette.forEach(p => all.push(p));
 const clusters = []; const snapped = new Map();
 for (const p of all) { let c = clusters.find(c => Math.hypot(c.x - p[0], c.y - p[1]) <= SNAP); if (!c) { c = { x: p[0], y: p[1], n: 0, pts: [] }; clusters.push(c); } c.pts.push(p); c.x = (c.x * c.n + p[0]) / (c.n + 1); c.y = (c.y * c.n + p[1]) / (c.n + 1); c.n++; }
-for (const c of clusters) { if (Math.abs(c.x - AXIS) <= 8) c.x = AXIS; for (const p of c.pts) snapped.set(p, [Math.round(c.x), Math.round(c.y)]); }
+for (const c of clusters) { if (Math.abs(c.x - AXIS) <= 8) c.x = AXIS; for (const p of c.pts) snapped.set(p, [Math.round(c.x * 2) / 2, Math.round(c.y * 2) / 2]); }
 const dedupe = poly => poly.filter((p, i) => { const q = poly[(i + 1) % poly.length]; return p[0] !== q[0] || p[1] !== q[1]; });
-// final clean-up: drop vertices that barely deviate from the line between their neighbours
-const straighten = (poly, eps) => { let out = poly; for (let pass = 0; pass < 3; pass++) { const keep = out.filter((p, i) => { const a = out[(i + out.length - 1) % out.length], b = out[(i + 1) % out.length]; const dx = b[0]-a[0], dy = b[1]-a[1]; const l = Math.hypot(dx, dy) || 1; return Math.abs((p[0]-a[0]) * dy - (p[1]-a[1]) * dx) / l > eps; }); if (keep.length === out.length || keep.length < 3) break; out = keep; } return out; };
 const toPoly = r => straighten(dedupe(r.poly.map(p => snapped.get(p))), 3);
+// tips: every plane corner that is sharp and sits within reach of an outline tip meets it exactly
+const interior = (poly, i) => { const n = poly.length, a = poly[(i + n - 1) % n], p = poly[i], b = poly[(i + 1) % n]; const u = [a[0]-p[0], a[1]-p[1]], v = [b[0]-p[0], b[1]-p[1]]; return Math.acos(Math.max(-1, Math.min(1, (u[0]*v[0]+u[1]*v[1]) / ((Math.hypot(...u) * Math.hypot(...v)) || 1)))); };
+const silPoly = straighten(dedupe(t.silhouette.map(p => snapped.get(p))), 3);
+const tips = silPoly.filter((p, i) => interior(silPoly, i) < Math.PI / 3.2);
+const mergeTips = poly => poly.map((p, i) => { if (interior(poly, i) >= Math.PI / 3.2) return p; const tip = tips.find(t => Math.hypot(t[0] - p[0], t[1] - p[1]) < 45); return tip ? [tip[0], tip[1]] : p; });
 const mirror = poly => poly.map(p => [2 * AXIS - p[0], p[1]]).reverse();
-const half = regions.map(r => ({ poly: toPoly(r) })).filter(f => f.poly.length >= 3);
+const half = regions.map(r => ({ poly: dedupe(mergeTips(toPoly(r))) })).filter(f => f.poly.length >= 3);
 const facets = [...half, ...half.map(f => ({ poly: mirror(f.poly) }))];
 // full outline: the half outline is walked clockwise from its top centre point, so the
 // right-hand run goes top -> bottom; append its mirror bottom -> top.
-const halfSil = straighten(dedupe(t.silhouette.map(p => snapped.get(p))), 3);
+const halfSil = silPoly;
 const onAxis = halfSil.filter(p => p[0] === AXIS), right = halfSil.filter(p => p[0] > AXIS);
 const top = onAxis.reduce((a, p) => p[1] < a[1] ? p : a), bottom = onAxis.reduce((a, p) => p[1] > a[1] ? p : a);
 const silhouette = [top, ...right, bottom, ...right.map(p => [2 * AXIS - p[0], p[1]]).reverse()];
