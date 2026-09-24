@@ -1,7 +1,7 @@
 # urchi-test
 
 A single-page mascot close-up: a compact, near-black, low-poly spiky cat head with a
-white rim and large open eyes that turns to follow the cursor, blinks every few seconds
+white rim, large open eyes and a slight pixelation, that turns to follow the cursor, blinks every few seconds
 (about 0.4s, occasionally twice), and breathes with a slow nod. Only the neutral face
 exists for now; the other expressions and their controls come later.
 

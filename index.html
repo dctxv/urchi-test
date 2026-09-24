@@ -66,12 +66,22 @@
         <!-- this frame's head silhouette (rebuilt every frame): the eyes are clipped to it so a
              flat eye never sticks out past the head as it turns away -->
         <clipPath id="head-clip"><path id="head-clip-path" d=""/></clipPath>
+        <!-- slight pixelation of the whole head (rim and eyes included): one colour is sampled
+             from each 12-unit cell of a grid fixed to the head and spread over the cell -->
+        <filter id="pixelate" filterUnits="userSpaceOnUse" x="-540" y="-560" width="1080" height="1110">
+          <feFlood x="-536" y="-556" width="4" height="4"/>
+          <feComposite x="-540" y="-560" width="12" height="12"/>
+          <feTile result="dots"/>
+          <feComposite in="SourceGraphic" in2="dots" operator="in"/>
+          <feMorphology operator="dilate" radius="4"/>
+        </filter>
         <filter id="shadow-blur" x="-30%" y="-100%" width="160%" height="300%"><feGaussianBlur stdDeviation="14"/></filter>
-        <!-- white rim: the rendered silhouette (whatever the angle) grown by 8 units and painted
+        <!-- white rim: the rendered silhouette (whatever the angle) grown by 11 units (about one
+             pixelation cell, so the pixelated rim never breaks up) and painted
              white; a near-black copy grown by 1.5 sits on top so the anti-aliased joins between
              planes show dark rather than white; then the head itself -->
         <filter id="rim" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
-          <feMorphology in="SourceAlpha" operator="dilate" radius="8" result="outer"/>
+          <feMorphology in="SourceAlpha" operator="dilate" radius="11" result="outer"/>
           <feFlood flood-color="#ffffff"/>
           <feComposite in2="outer" operator="in" result="rim"/>
           <feMorphology in="SourceAlpha" operator="dilate" radius="1.5" result="inner"/>
@@ -81,7 +91,7 @@
         </filter>
       </defs>
       <ellipse class="shadow" cx="0" cy="500" rx="300" ry="30" fill="#000" opacity=".5" filter="url(#shadow-blur)"/>
-      <g class="head">
+      <g class="head" filter="url(#pixelate)">
         <g class="fills" filter="url(#rim)"></g>
       </g>
     </svg>
