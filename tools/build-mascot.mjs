@@ -207,7 +207,7 @@ for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW
 // under the eye and lifted just enough that no part of the surface pokes through, so the eye
 // sits as a flat layer right in front of the face: it turns with the head but never wraps
 // over the facets. Sizes are in front-view pixels, measured off the sheet relative to the head.
-const EYE = { dx: 155, y: 585, rx: 100, ry: 108.3, pupilRx: 57, pupilRy: 72.8, pupilIn: 18, clear: 6, steps: 40 };    // clear: gap between the eye and the highest point of the face under it
+const EYE = { dx: 155, y: 585, rx: 100, ry: 103.1, pupilRx: 57, pupilRy: 69.3, pupilIn: 18, clear: 6, steps: 40 };    // clear: gap between the eye and the highest point of the face under it
 const eyeData = [];
 {
   // front surface depth at a front-view point: interpolate inside the front plane that covers it
@@ -234,6 +234,7 @@ const eyeData = [];
     const to3 = ([x, y]) => [x, y, plane(x, y) + lift];
     const nl = Math.hypot(sol[0], sol[1], 1);
     eyeData.push({
+      dzdx: sol[0], dzdy: sol[1],
       outer: ellipse(0, EYE.rx, EYE.ry).map(to3),
       inner: ellipse(-EYE.pupilIn, EYE.pupilRx, EYE.pupilRy).map(to3),
       c: to3([cx, EYE.y]),
@@ -243,7 +244,7 @@ const eyeData = [];
   }
   const mirror = p => [2 * AX - p[0], p[1], p[2]];
   const R = eyeData[0];
-  eyeData.push({ outer: R.outer.map(mirror).reverse(), inner: R.inner.map(mirror).reverse(), c: mirror(R.c), n: [-R.n[0], R.n[1], R.n[2]] });
+  eyeData.push({ dzdx: -R.dzdx, dzdy: R.dzdy, outer: R.outer.map(mirror).reverse(), inner: R.inner.map(mirror).reverse(), c: mirror(R.c), n: [-R.n[0], R.n[1], R.n[2]] });
 }
 
 // ------------------------------------------------------------------ triangulate for drawing
@@ -318,10 +319,12 @@ const mesh = {
   v: used.map(v => [r1(V3[v][0] - AX), r1(V3[v][1] - CY), r1(V3[v][2] - CZ)]),
   f: faces.map(f => f.map(v => newId.get(v))),
   g: planeOf,   // the drawn plane each triangle belongs to (shaded as one)
+  // eyes: each lies on a plane z = c.z + dzdx*(x - c.x) + dzdy*(y - c.y); the page draws the
+  // open ring, the blink squash and the closed arc on it from the sizes in `eye`
+  eye: { rx: EYE.rx, ry: EYE.ry, prx: EYE.pupilRx, pry: EYE.pupilRy, pin: EYE.pupilIn },
   eyes: eyeData.map(e => ({
-    outer: e.outer.map(p => [r1(p[0] - AX), r1(p[1] - CY), r1(p[2] - CZ)]),
-    inner: e.inner.map(p => [r1(p[0] - AX), r1(p[1] - CY), r1(p[2] - CZ)]),
     c: [r1(e.c[0] - AX), r1(e.c[1] - CY), r1(e.c[2] - CZ)],
+    dzdx: Math.round(e.dzdx * 10000) / 10000, dzdy: Math.round(e.dzdy * 10000) / 10000,
     n: e.n.map(v => Math.round(v * 1000) / 1000),   // facing direction, for hiding the eye as the head turns away
   })),
   pivot: [0, r1((FRONT_TOP + FRONT_BOTTOM) / 2 - CY), 0],   // turn about the middle of the head, not the ear tips
