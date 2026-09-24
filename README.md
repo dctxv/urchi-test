@@ -1,7 +1,8 @@
 # urchi-test
 
-A single-page mascot close-up: a compact, near-black, low-poly spiky cat head that
-turns to follow the cursor. The eyes and expression controls are parked for now.
+A single-page mascot close-up: a compact, near-black, low-poly spiky cat head with a
+white rim and large open eyes that turns to follow the cursor. Only the neutral face
+exists for now; the other expressions and their controls come later.
 
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a
   few lines of vanilla JS turn toward the cursor, back-face cull, flat-shade from one
@@ -20,7 +21,8 @@ turns to follow the cursor. The eyes and expression controls are parked for now.
   one plane each) (then stretches the front 1.3× and leaves the back as traced,
   set with `FRONT_GROW` / `BACK_GROW`), checks the result is one closed surface with every
   edge shared by exactly two planes, and bakes it into `index.html`. Run it after
-  editing; `--verbose` lists every repair it made.
+  editing; `--verbose` lists every repair it made. It also places the eyes: flat oval
+  rings on a plane fitted to the face under them and lifted clear of it.
 
 Debug knobs: `index.html?still` freezes the hover and the cursor follow;
 `?look=0.6,-0.3` fixes the gaze target (x right, y down, each -1..1);

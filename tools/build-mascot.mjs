@@ -201,6 +201,51 @@ if (missing.length) throw new Error('no depth for: ' + missing.join(', '));
 const FRONT_GROW = Number(process.env.FRONT_GROW ?? 1.3), BACK_GROW = Number(process.env.BACK_GROW ?? 1.0);
 for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW;
 
+// ------------------------------------------------------------------ eyes
+// Neutral face: the large open eyes from the four-expression sheet. Each is a flat oval ring
+// with an oval pupil hole. Its plane is fitted (least squares) to the head's front surface
+// under the eye and lifted just enough that no part of the surface pokes through, so the eye
+// sits as a flat layer right in front of the face: it turns with the head but never wraps
+// over the facets. Sizes are in front-view pixels, measured off the sheet relative to the head.
+const EYE = { dx: 190, y: 645, rx: 100, ry: 110, pupilRx: 57, pupilRy: 74, pupilIn: 10, clear: 36, steps: 40 };   // clear: gap between the eye and the highest point of the face under it
+const eyeData = [];
+{
+  // front surface depth at a front-view point: interpolate inside the front plane that covers it
+  const frontZ = (x, y) => {
+    for (const f of front) for (let k = 1; k < f.length - 1; k++) {
+      const [a, b, c] = [f[0], f[k], f[k + 1]].map(v => V3[v]);
+      const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+      const l1 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d, l2 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d, l3 = 1 - l1 - l2;
+      if (l1 >= -1e-6 && l2 >= -1e-6 && l3 >= -1e-6) return l1 * a[2] + l2 * b[2] + l3 * c[2];
+    }
+    return null;
+  };
+  {
+    const side = 1, cx = AX + EYE.dx;   // fit the right eye; the left is its mirror image
+    const ellipse = (ox, rx, ry, scale = 1) => Array.from({ length: EYE.steps }, (_, k) => { const t = 2 * Math.PI * k / EYE.steps; return [cx + side * ox + scale * rx * Math.cos(t), EYE.y + scale * ry * Math.sin(t)]; });
+    // sample the surface under the eye and fit z = a x + b y + c
+    const samples = [[cx, EYE.y], ...ellipse(0, EYE.rx, EYE.ry), ...ellipse(0, EYE.rx, EYE.ry, 0.6)].map(([x, y]) => [x, y, frontZ(x, y)]).filter(p => p[2] !== null);
+    const m = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], r = [0, 0, 0];
+    for (const [x, y, z] of samples) { const q = [x - cx, y - EYE.y, 1]; for (let i = 0; i < 3; i++) { r[i] += q[i] * z; for (let j = 0; j < 3; j++) m[i][j] += q[i] * q[j]; } }
+    const det = M => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+    const D = det(m), sol = [0, 1, 2].map(i => det(m.map((row, ri) => row.map((v, ci) => ci === i ? r[ri] : v))) / D);
+    const plane = (x, y) => sol[0] * (x - cx) + sol[1] * (y - EYE.y) + sol[2];
+    const lift = Math.max(...samples.map(([x, y, z]) => z - plane(x, y))) + EYE.clear;
+    const to3 = ([x, y]) => [x, y, plane(x, y) + lift];
+    const nl = Math.hypot(sol[0], sol[1], 1);
+    eyeData.push({
+      outer: ellipse(0, EYE.rx, EYE.ry).map(to3),
+      inner: ellipse(-EYE.pupilIn, EYE.pupilRx, EYE.pupilRy).map(to3),
+      c: to3([cx, EYE.y]),
+      n: [-sol[0] / nl, -sol[1] / nl, 1 / nl],   // plane normal toward the viewer
+    });
+    report.push(`eyes: plane tilt ${(Math.atan(Math.hypot(sol[0], sol[1])) * 180 / Math.PI).toFixed(0)} deg, lifted ${lift.toFixed(1)} to clear the surface`);
+  }
+  const mirror = p => [2 * AX - p[0], p[1], p[2]];
+  const R = eyeData[0];
+  eyeData.push({ outer: R.outer.map(mirror).reverse(), inner: R.inner.map(mirror).reverse(), c: mirror(R.c), n: [-R.n[0], R.n[1], R.n[2]] });
+}
+
 // ------------------------------------------------------------------ triangulate for drawing
 // Planes with more than three corners are rarely flat once they have depth, and drawn as one
 // polygon they can fold over themselves when the head turns (three corners on one line
@@ -273,6 +318,12 @@ const mesh = {
   v: used.map(v => [r1(V3[v][0] - AX), r1(V3[v][1] - CY), r1(V3[v][2] - CZ)]),
   f: faces.map(f => f.map(v => newId.get(v))),
   g: planeOf,   // the drawn plane each triangle belongs to (shaded as one)
+  eyes: eyeData.map(e => ({
+    outer: e.outer.map(p => [r1(p[0] - AX), r1(p[1] - CY), r1(p[2] - CZ)]),
+    inner: e.inner.map(p => [r1(p[0] - AX), r1(p[1] - CY), r1(p[2] - CZ)]),
+    c: [r1(e.c[0] - AX), r1(e.c[1] - CY), r1(e.c[2] - CZ)],
+    n: e.n.map(v => Math.round(v * 1000) / 1000),   // facing direction, for hiding the eye as the head turns away
+  })),
   pivot: [0, r1((FRONT_TOP + FRONT_BOTTOM) / 2 - CY), 0],   // turn about the middle of the head, not the ear tips
   origin: [AX, CY, r1(CZ)],                                // where (0,0,0) sits in traced front-view coordinates
 };
