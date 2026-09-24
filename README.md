@@ -2,7 +2,7 @@
 
 A single-page mascot close-up: a compact, near-black, low-poly spiky cat head with a
 white rim and large open eyes that turns to follow the cursor, blinks every few seconds
-(about 0.3s, occasionally twice), and breathes with a slow nod. Only the neutral face
+(about 0.4s, occasionally twice), and breathes with a slow nod. Only the neutral face
 exists for now; the other expressions and their controls come later.
 
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a

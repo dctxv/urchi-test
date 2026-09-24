@@ -208,9 +208,9 @@
     const lower = Array.from({ length: ARC - 1 }, (_, k) => { const t = 1 - (k + 1) / ARC; return [x0 + t * w, y0 + 4 * bottom * t * (1 - t)]; });
     return { white: [...upper, ...lower], pupil: null };
   }
-  // A calm, deliberate blink: ~90ms to close, a brief hold, ~140ms to open (opening is slower),
+  // A calm, deliberate blink: ~90ms to close, 150ms fully shut, ~140ms to open (opening is slower),
   // every 2.5-6s, now and then twice in a row.
-  const BLINK = { close: 0.09, hold: 0.07, open: 0.14 };
+  const BLINK = { close: 0.09, hold: 0.15, open: 0.14 };
   const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false };
   function stepBlink(t) {
     if (blink.start < 0) { if (t >= blink.next) blink.start = t; else return 0; }
