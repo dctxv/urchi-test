@@ -37,10 +37,9 @@
   }
   .mascot-wrap { width:min(360px, 84vw, 64vh); margin:0; }
   .mascot { display:block; width:100%; height:auto; overflow:visible; touch-action:none; }
-  /* every plane carries its own outline and is painted far-to-near, so a nearer plane's
-     fill covers whatever is behind it (edges included) and each visible edge is stroked
-     once, at full width, by the nearest plane that owns it */
-  .mascot .fills polygon { stroke:#000; stroke-width:3; stroke-linejoin:round; }
+  /* no outlines: each plane is stroked thinly in its own colour only to seal the
+     anti-aliasing hairlines between neighbours; planes are painted far-to-near */
+  .mascot .fills polygon { stroke-width:1.5; stroke-linejoin:round; }
 
   .hint {
     position:fixed; left:22px; top:calc(20px + env(safe-area-inset-top, 0px));
@@ -177,6 +176,7 @@
       const g = Math.round(10 + 62 * i);   // near-black: planes range from #0A0A0A to about #484848
       el.style.display = '';
       el.setAttribute('fill', `rgb(${g},${g},${g})`);
+      el.setAttribute('stroke', `rgb(${g},${g},${g})`);
       let pts = '';
       for (const vi of f) pts += `${f1(proj[vi * 3])},${f1(proj[vi * 3 + 1])} `;
       el.setAttribute('points', pts);

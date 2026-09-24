@@ -5,9 +5,7 @@ turns to follow the cursor. The eyes and expression controls are parked for now.
 
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a
   few lines of vanilla JS turn toward the cursor, back-face cull, flat-shade from one
-  overhead light, and paint far-to-near as SVG polygons every frame. Each plane carries
-  its own black outline, so hidden edges never show through and every visible edge has
-  the same width. No build step; open the file or serve the folder.
+  overhead light, and paint far-to-near as SVG polygons every frame, with no outlines. No build step; open the file or serve the folder.
 - `ref/head-half.png` — the half-face plane diagram (blue planes, green edges) the front
   of the head is traced from and mirrored.
 - `ref/head-side.png` — the side view the depth is taken from: the centre line follows
