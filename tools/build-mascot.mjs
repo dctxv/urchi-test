@@ -57,9 +57,9 @@ const DEPTH = [
   [986.5, 601, 45],        // spike 2 tip   (side view: lower spike, centred ~Z 44)
   [893.5, 677, 40],        // notch between spikes 2 and 3
   [952.5, 789.5, 40],      // spike 3 / jaw corner tip
-  [686, 855, 30],          // underside edge
+  [686, 855, 60],          // underside edge
   [507, 217, 40],          // top of the head (side view: top edge runs from Z -241 to +94)
-  [507, 897.5, 6],         // chin, the lowest point
+  [507, 897.5, 50],        // chin, the lowest point (forward of the side view's 6, with the jaw)
   // interior: [x, y, front, back]
   [714, 286, 127, -154],   // ear base, inner front / back (side view: ear edges pass Z -113 and +94 at the head top)
   [810.5, 392, 60, -140],  // ear base, lower front / back
@@ -69,15 +69,14 @@ const DEPTH = [
   [855, 654, 160, -90],    // spike 3 base
   [706.5, 385.5, 230, -310], // forehead
   [784.5, 526.5, 210, -290], // brow corner
-  [751, 678.5, 210, -310], // cheek
-  [762, 698, 195, -300],   // cheek
-  [685.5, 695.5, 230, -340], // lower face
-  [781.5, 732, 165, -290], // jaw
-  [720, 800.5, 135, -280], // jaw
-  // centre line, where the side view is overridden: the lower face bulges past the straight
-  // line between the brow and the mouth corner, so the vertex at the bottom of the eye
-  // plane sits a little proud of the outline at its own height
-  [507, 752, 240, null],
+  [751, 678.5, 235, -310], // cheek
+  [762, 698, 225, -300],   // cheek
+  [685.5, 695.5, 270, -340], // lower face
+  [781.5, 732, 200, -290], // jaw
+  [720, 800.5, 195, -280], // jaw
+  // centre line, where the side view is overridden: the nose/jaw is pushed forward of the
+  // side view, level with the brow, so the lower face doesn't read as recessed
+  [507, 752, 285, null],
 ];
 // Extra vertices on the back centre line where the side view's back outline turns a corner:
 // [front-view y, side-view column]. The back shell has no drawn diagram, so these are free.
@@ -200,7 +199,7 @@ if (missing.length) throw new Error('no depth for: ' + missing.join(', '));
 // Stretch the head past the side reference: everything in front of the ear/spike plane
 // (Z = 0) grows by FRONT_GROW, everything behind it by BACK_GROW. Scaling depth only
 // keeps the front outline and every shared corner exactly where they were.
-const FRONT_GROW = Number(process.env.FRONT_GROW ?? 1.3), BACK_GROW = Number(process.env.BACK_GROW ?? 1.1);
+const FRONT_GROW = Number(process.env.FRONT_GROW ?? 1.3), BACK_GROW = Number(process.env.BACK_GROW ?? 1.0);
 for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW;
 
 // ------------------------------------------------------------------ 4. validate
