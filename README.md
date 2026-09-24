@@ -6,9 +6,13 @@ selectable eye expressions (Neutral, Wide, Closed, Half-open) and an Auto cycle.
 - `index.html` — the whole page. The mascot is a static inline SVG (flat polygon
   facets, one `<g>` per expression), with the controls and the Auto cycle in a few
   lines of vanilla JS. No build step; open the file or serve the folder.
-- `mascot-close-up.jpg` — the four-expression reference the head is matched against.
-- `tools/build-mascot.mjs` — optional generator that bakes the SVG into `index.html`
-  from a hand-placed vertex list. Run `node tools/build-mascot.mjs` after editing it;
-  `--preview` writes `tools/preview.html` with a four-up and a labelled wireframe.
+- `ref/head-front.png` — flat-lit front view the head geometry and greys are traced from.
+- `mascot-close-up.jpg` — the four-expression sheet the eye designs follow.
+- `tools/trace-ref.mjs` — traces `ref/head-front.png` into `tools/mascot-facets.json`
+  (edge-based facet segmentation, snapped and mirrored vertices). Needs the
+  `playwright` package with Chromium; only rerun it if the reference changes.
+- `tools/build-mascot.mjs` — bakes the facets and the parametric eyes into `index.html`.
+  Run `node tools/build-mascot.mjs` after editing it; `--preview` writes
+  `tools/preview.html` with a four-up and a wireframe.
 
 Debug knobs: `index.html?expr=wide` forces an expression, `?still` freezes the hover.
