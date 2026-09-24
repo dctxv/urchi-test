@@ -208,14 +208,14 @@
     const lower = Array.from({ length: ARC - 1 }, (_, k) => { const t = 1 - (k + 1) / ARC; return [x0 + t * w, y0 + 4 * bottom * t * (1 - t)]; });
     return { white: [...upper, ...lower], pupil: null };
   }
-  // A real blink is quick: ~60ms to close, a brief hold, ~90ms to open (opening is slower),
+  // A calm, deliberate blink: ~90ms to close, a brief hold, ~140ms to open (opening is slower),
   // every 2.5-6s, now and then twice in a row.
-  const BLINK = { close: 0.06, hold: 0.04, open: 0.09 };
+  const BLINK = { close: 0.09, hold: 0.07, open: 0.14 };
   const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false };
   function stepBlink(t) {
     if (blink.start < 0) { if (t >= blink.next) blink.start = t; else return 0; }
     const e = t - blink.start, { close, hold, open } = BLINK;
-    if (e < close) { const u = e / close; return u * u; }            // lid accelerates down
+    if (e < close) { const u = e / close; return u * u * (3 - 2 * u); }   // lid eases down, deliberate rather than a snap
     if (e < close + hold) return 1;
     if (e < close + hold + open) { const u = (e - close - hold) / open; return 1 - (1 - (1 - u) * (1 - u)); }   // eases open
     blink.start = -1;
