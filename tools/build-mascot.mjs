@@ -197,6 +197,11 @@ pts.forEach(([x, y], v) => {
   V3[v][2] = zf; V3[twin.get(v)][2] = zb;
 });
 if (missing.length) throw new Error('no depth for: ' + missing.join(', '));
+// Stretch the head past the side reference: everything in front of the ear/spike plane
+// (Z = 0) grows by FRONT_GROW, everything behind it by BACK_GROW. Scaling depth only
+// keeps the front outline and every shared corner exactly where they were.
+const FRONT_GROW = Number(process.env.FRONT_GROW ?? 1.3), BACK_GROW = Number(process.env.BACK_GROW ?? 1.1);
+for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW;
 
 // ------------------------------------------------------------------ 4. validate
 {

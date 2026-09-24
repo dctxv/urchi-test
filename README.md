@@ -18,7 +18,8 @@ turns to follow the cursor. The eyes and expression controls are parked for now.
   if a reference changes.
 - `tools/build-mascot.mjs` — makes every plane meet its neighbours corner to corner
   (clipped spike tips merged, T-junctions inserted), mirrors the half, closes the back,
-  assigns depth from the side view, checks the result is one closed surface with every
+  assigns depth from the side view (then stretches the front 1.3× and the back 1.1×,
+  set with `FRONT_GROW` / `BACK_GROW`), checks the result is one closed surface with every
   edge shared by exactly two planes, and bakes it into `index.html`. Run it after
   editing; `--verbose` lists every repair it made.
 
