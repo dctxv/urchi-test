@@ -6,7 +6,8 @@ selectable eye expressions (Neutral, Wide, Closed, Half-open) and an Auto cycle.
 - `index.html` — the whole page. The mascot is a static inline SVG (flat polygon
   facets, one `<g>` per expression), with the controls and the Auto cycle in a few
   lines of vanilla JS. No build step; open the file or serve the folder.
-- `ref/head-front.png` — flat-lit front view the head geometry and greys are traced from.
+- `ref/head-front.png` — flat-lit front view the head geometry is traced from; the planes are
+  then relit in monochrome from a single overhead light, with black facet outlines.
 - `mascot-close-up.jpg` — the four-expression sheet the eye designs follow.
 - `tools/trace-ref.mjs` — traces `ref/head-front.png` into `tools/mascot-facets.json`
   (edge-based facet segmentation, snapped and mirrored vertices). Needs the

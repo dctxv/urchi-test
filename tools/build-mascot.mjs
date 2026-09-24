@@ -5,10 +5,10 @@
 //   node tools/build-mascot.mjs --preview  # also write tools/preview.html (four-up + wireframe)
 //
 // The facets come from tools/mascot-facets.json, which tools/trace-ref.mjs traces
-// from the flat-shaded front view in ref/head-front.png: every plane keeps the
-// grey the render gave it (monochrome, no tints, no gradients), the geometry is
-// mirrored left/right, and the eyes are parametric white paths drawn as a flat
-// layer above the facets, one <g> per expression.
+// from the flat-shaded front view in ref/head-front.png. The geometry is mirrored
+// left/right, every plane is relit in monochrome from a single light (no tints,
+// no gradients) with a black outline, and the eyes are parametric white paths
+// drawn as a flat layer above the facets, one <g> per expression.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -31,20 +31,42 @@ const inside = ([x, y], poly) => {
   return ok;
 };
 
+// ------------------------------------------------------------------ lighting
+// The render's greys are inconsistent, so every plane is relit from one light.
+// Depth is inflated from the silhouette (a vertex far from the outline sits further
+// forward), the lower face is capped flat, and each polygon's normal comes from
+// Newell's method on its (x, y, z) vertices.
+const ENV = k => process.env[k] !== undefined ? Number(process.env[k]) : undefined;
+const LIGHT = (() => { const l = [ENV('LX') ?? 0.18, ENV('LY') ?? 0.88, ENV('LZ') ?? 0.44], n = Math.hypot(...l); return l.map(v => v / n); })();   // x right, y up, z toward viewer
+const INFLATE = ENV('INFLATE') ?? 26, FACE_Y = 505, FACE_Z = ENV('FACE_Z') ?? 330, GAMMA = ENV('GAMMA') ?? 1.5;
+const AX = DATA.axis;
+const sil = DATA.silhouette;
+function edgeDist([x, y]) {
+  let best = Infinity;
+  for (let i = 0, j = sil.length - 1; i < sil.length; j = i++) {
+    const [ax, ay] = sil[j], [bx, by] = sil[i]; const dx = bx - ax, dy = by - ay; const l = dx * dx + dy * dy;
+    const t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
+    best = Math.min(best, Math.hypot(ax + t * dx - x, ay + t * dy - y));
+  }
+  return best;
+}
+const depth = p => { let z = INFLATE * Math.sqrt(edgeDist(p)); if (p[1] > FACE_Y) z = Math.min(z, FACE_Z); return z; };
+function shadeOf(poly) {
+  const v = poly.map(p => [p[0], -p[1], depth(p)]);
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < v.length; i++) { const a = v[i], b = v[(i + 1) % v.length]; nx += (a[1] - b[1]) * (a[2] + b[2]); ny += (a[2] - b[2]) * (a[0] + b[0]); nz += (a[0] - b[0]) * (a[1] + b[1]); }
+  const l = Math.hypot(nx, ny, nz) || 1; let n = [nx / l, ny / l, nz / l]; if (n[2] < 0) n = n.map(c => -c);
+  const i = Math.pow(Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]), GAMMA);
+  return 6 + 150 * i;
+}
+
 // ------------------------------------------------------------------ head
-// A silhouette underlay in the darkest tone seals any hairline seams between planes.
+const EDGE = '#000', EDGE_W = 2.5;   // black outline on every facet edge
 const underlay = `<polygon points="${pts(DATA.silhouette)}" fill="${grey(8)}"/>`;
-const facets = DATA.facets.map(f => `<polygon points="${pts(f.poly)}" fill="${grey(f.grey)}" stroke="${grey(f.grey)}"/>`);
-// The render's grey eye sockets are placeholders: fill them with the face plane they sit in.
-const sockets = DATA.sockets.map(s => {
-  const host = DATA.facets.find(f => inside([s.cx, s.cy], f.poly));
-  const g = grey(host ? host.grey : 30);
-  return `<polygon points="${pts(s.poly)}" fill="${g}" stroke="${g}"/>`;
-});
+const facets = DATA.facets.map(f => `<polygon points="${pts(f.poly)}" fill="${grey(shadeOf(f.poly))}"/>`);
 
 // ------------------------------------------------------------------ eyes
 // Placed from the traced sockets: mirrored centres, disc radius a little under the socket half-width.
-const AX = DATA.axis;
 const dx = DATA.sockets.reduce((a, s) => a + Math.abs(s.cx - AX), 0) / DATA.sockets.length;
 const EYE = { lx: Math.round(AX - dx), rx: Math.round(AX + dx), cy: Math.round(DATA.sockets[0].cy), r: 100 };
 const STROKE = 9;   // same-colour round-joined stroke softens the corners; adds ~4.5 all round
@@ -115,7 +137,7 @@ const svg = `<svg class="mascot" viewBox="${VB.x} ${VB.y} ${VB.w} ${VB.h}" ${SIZ
       </defs>
       <ellipse class="shadow" cx="${AX}" cy="${shadowY}" rx="${Math.round(VB.w * 0.27)}" ry="30" fill="#000" opacity=".5" filter="url(#shadow-blur)"/>
       <g class="head">
-        <g class="facets">${underlay}${facets.join('')}${sockets.join('')}</g>
+        <g class="facets" stroke="${EDGE}" stroke-width="${EDGE_W}" stroke-linejoin="round">${underlay}${facets.join('')}</g>
         <!-- eyes: a flat layer sitting just in front of the face; never wrapped onto the facet planes -->
         <g class="eyes" fill="${WHITE}" stroke="${WHITE}" stroke-width="${STROKE}" stroke-linejoin="round" stroke-linecap="round">
           <g class="expr" data-expr="neutral">${eyes.neutral}</g>
@@ -133,11 +155,11 @@ const START = '<!-- mascot:start -->', END = '<!-- mascot:end -->';
 const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0 || e < 0) throw new Error('index.html is missing the <!-- mascot:start --> / <!-- mascot:end --> markers');
 writeFileSync(indexPath, html.slice(0, s + START.length) + '\n    ' + svg + '\n    ' + html.slice(e));
-console.log(`baked ${facets.length} facets (+${sockets.length} socket fills) into index.html; eyes at ${EYE.lx}/${EYE.rx}, y ${EYE.cy}, r ${EYE.r}`);
+console.log(`baked ${facets.length} facets into index.html; eyes at ${EYE.lx}/${EYE.rx}, y ${EYE.cy}, r ${EYE.r}`);
 
 if (PREVIEW) {
   const at = (expr, size) => svg.replace(SIZE, `width="${size}" height="${Math.round(size * VB.h / VB.w)}"`).replace('data-expr="neutral"', `data-expr="${expr}"`);
-  const wire = at('neutral', 520).replace(/stroke="#[0-9A-F]+"/g, 'stroke="#3f3" stroke-width="1.2"');
+  const wire = at('neutral', 520).replace('stroke="#000"', 'stroke="#3f3"');
   const preview = `<!doctype html><meta charset="utf-8"><body style="margin:0;background:#2c2d30;font:600 14px/1 sans-serif;color:#ddd;letter-spacing:.1em">
   <div style="display:flex;justify-content:center;gap:0;padding:10px 0">${['neutral', 'wide', 'closed', 'halfopen'].map(x => `<figure style="margin:0;text-align:center">${at(x, 300)}<figcaption>${x.toUpperCase()}</figcaption></figure>`).join('')}</div>
   <div style="display:flex;justify-content:center;gap:30px;padding:10px 0">${at('neutral', 520)}${wire}</div>
