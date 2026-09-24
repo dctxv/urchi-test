@@ -163,25 +163,33 @@
   }
 
   // ------------------------------------------------------------------ curious head tilt
-  // Now and then the head leans to one side as if puzzling something out, holds, and
-  // straightens. Direction always alternates (never right then right again), each tilt is a
-  // random 8-14 degrees (never more), and after straightening it waits at least 2s and
-  // at most 5s before the next. The tilt pivots low in the head, like a neck, with a little
-  // turn toward that side; a soft spring gives it a small overshoot so it feels alive.
-  const TILT = { minGap: 2, maxGap: 5, minAngle: 8 * D2R, maxAngle: 14 * D2R, minHold: 1.2, maxHold: 2.6, turn: 3 * D2R, pivot: 250 };
+  // A random sequence of head moves, one every 2-5s (never sooner, never later). From a tilt
+  // it either swings straight across to the other side or straightens (50/50); from level it
+  // tilts to the side opposite its last tilt, so it never tilts the same way twice in a row.
+  // Each move picks its own angle (usually 6-15 degrees, about one in four a small 3-6), its
+  // own speed (slow lean to quick perk), a slight turn toward that side and a small look up
+  // or down. The tilt pivots low in the head, like a neck, through a soft spring.
+  const TILT = { minGap: 2, maxGap: 5, pivot: 250 };
   const rand = (a, b) => a + Math.random() * (b - a);
-  const tilt = { roll: spring(), yaw: spring(), next: rand(1.5, 3.5), until: -1, last: Math.random() < 0.5 ? 1 : -1 };
+  const tilt = { roll: spring(), yaw: spring(), pitch: spring(), speed: 5.5, side: 0, last: Math.random() < 0.5 ? 1 : -1, next: rand(1, 3) };
   function stepTilt(t, dt) {
-    if (tilt.until < 0 && t >= tilt.next) {                          // start a tilt, opposite side to the last one
-      const dir = -tilt.last; tilt.last = dir;
-      tilt.roll.target = dir * rand(TILT.minAngle, TILT.maxAngle);
-      tilt.yaw.target = dir * TILT.turn;
-      tilt.until = t + rand(TILT.minHold, TILT.maxHold);
-    } else if (tilt.until >= 0 && t >= tilt.until) {                 // straighten, then wait before the next
-      tilt.roll.target = 0; tilt.yaw.target = 0; tilt.until = -1;
+    if (t >= tilt.next) {
+      const straighten = tilt.side !== 0 && Math.random() < 0.5;
+      if (straighten) {
+        tilt.side = 0;
+        tilt.roll.target = 0; tilt.yaw.target = 0; tilt.pitch.target = 0;
+      } else {
+        const dir = -tilt.last;   // opposite to the last tilt, whether coming from level or from the other side
+        const small = Math.random() < 0.25;
+        tilt.side = tilt.last = dir;
+        tilt.roll.target = dir * rand(small ? 3 : 6, small ? 6 : 15) * D2R;
+        tilt.yaw.target = dir * rand(1, 5) * D2R;
+        tilt.pitch.target = rand(-3, 2) * D2R;   // mostly a slight look up, sometimes down
+      }
+      tilt.speed = rand(3.5, 8);                  // this move's pace: slow lean .. quick perk
       tilt.next = t + rand(TILT.minGap, TILT.maxGap);
     }
-    stepSpring(tilt.roll, dt, 5.5, 0.62); stepSpring(tilt.yaw, dt, 5.5, 0.7);
+    stepSpring(tilt.roll, dt, tilt.speed, 0.62); stepSpring(tilt.yaw, dt, tilt.speed, 0.7); stepSpring(tilt.pitch, dt, tilt.speed, 0.7);
   }
 
   // ------------------------------------------------------------------ eyes + blink
@@ -343,7 +351,7 @@
     const nod = STILL || FORCED ? breathe(0) : breathe(S.t);
     if (!reduceMotion && !FORCED) stepTilt(S.t, dt);
     const roll = FORCED_ROLL ?? tilt.roll.v;
-    render(S.yaw.v + tilt.yaw.v, S.pitch.v + nod, roll);
+    render(S.yaw.v + tilt.yaw.v, S.pitch.v + tilt.pitch.v + nod, roll);
     if (!STILL) requestAnimationFrame(frame);
   }
   blinkAmount = FORCED_BLINK ?? 0;
