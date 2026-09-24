@@ -423,21 +423,29 @@
       depth[fi] = zsum / 3; tarea[fi] = area;
       const g = G[fi]; GN[g * 3] += nx; GN[g * 3 + 1] += ny; GN[g * 3 + 2] += nz;
     }
-    // 2. visible triangles, each taking its plane's one shade; the silhouette is their union
-    const items = [], head = new Path2D();
+    // 2. visible triangles, merged per plane into one shape (so no seams show inside a plane),
+    //    each plane taking its one shade; the silhouette is the union of everything
+    const planes = new Map(), head = new Path2D();
     for (let fi = 0; fi < F.length; fi++) {
       if (!(tarea[fi] > 0)) continue;
-      const g = G[fi];
-      let nx = GN[g * 3], ny = GN[g * 3 + 1], nz = GN[g * 3 + 2];
-      const l = Math.hypot(nx, ny, nz) || 1;
-      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
-      const i = Math.pow(Math.max(0, (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / l), 1.2);
-      const c = Math.round(4 + 24 * i);   // near-black: planes range from #040404 to about #1C1C1C
-      const f = F[fi], tri = new Path2D();
+      const g = G[fi], f = F[fi];
+      let pl = planes.get(g);
+      if (!pl) {
+        let nx = GN[g * 3], ny = GN[g * 3 + 1], nz = GN[g * 3 + 2];
+        const l = Math.hypot(nx, ny, nz) || 1;
+        if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        const i = Math.pow(Math.max(0, (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / l), 1.2);
+        const c = Math.round(4 + 24 * i);   // near-black: planes range from #040404 to about #1C1C1C
+        pl = { z: 0, n: 0, path: new Path2D(), color: `rgb(${c},${c},${c})` };
+        planes.set(g, pl);
+      }
+      const tri = new Path2D();
       tri.moveTo(proj[f[0] * 3], proj[f[0] * 3 + 1]); tri.lineTo(proj[f[1] * 3], proj[f[1] * 3 + 1]); tri.lineTo(proj[f[2] * 3], proj[f[2] * 3 + 1]); tri.closePath();
-      head.addPath(tri);
-      items.push({ z: depth[fi], tri, color: `rgb(${c},${c},${c})` });
+      pl.path.addPath(tri); head.addPath(tri);
+      pl.z += depth[fi]; pl.n++;
     }
+    const items = [];
+    for (const pl of planes.values()) items.push({ z: pl.z / pl.n, plane: pl });
     // 3. eyes: drawn on their face plane, hidden once that face turns away, and sorted just in
     //    front of what they lie on so nearer parts of the head cover them
     EYES.forEach(e => {
@@ -459,9 +467,10 @@
     ctx.setTransform(1 / CELL, 0, 0, 1 / CELL, -VBX / CELL, (rise - VBY) / CELL);
     ctx.lineJoin = 'round';
     ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
-    ctx.lineWidth = 1;
+    ctx.lineWidth = CELL;   // one canvas pixel
     for (const it of items) {
-      if (it.tri) { ctx.fillStyle = ctx.strokeStyle = it.color; ctx.fill(it.tri); ctx.stroke(it.tri); continue; }
+      // one-pixel stroke in the plane's own colour closes the anti-aliasing gap to its neighbours
+      if (it.plane) { ctx.fillStyle = ctx.strokeStyle = it.plane.color; ctx.fill(it.plane.path); ctx.stroke(it.plane.path); continue; }
       ctx.save(); ctx.clip(head);                                     // a turned-away eye never sticks out past the head
       ctx.fillStyle = EYE_COLOUR.iris; ctx.fill(it.eye.white);
       if (it.eye.pupil) { ctx.clip(it.eye.white); ctx.fillStyle = it.eye.left ? EYE_COLOUR.pupilLeft : EYE_COLOUR.pupilRight; ctx.fill(it.eye.pupil); }   // the lid covers the pupil
