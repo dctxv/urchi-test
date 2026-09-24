@@ -192,6 +192,26 @@
     stepSpring(tilt.roll, dt, tilt.speed, 0.62); stepSpring(tilt.yaw, dt, tilt.speed, 0.7); stepSpring(tilt.pitch, dt, tilt.speed, 0.7);
   }
 
+  // ------------------------------------------------------------------ pupil movement
+  // The pupils move as a pair, separately from the eye whites: small, smooth darts up, down,
+  // left and right, and now and then a quick dip to 95% height and back. A new change comes
+  // every 0.2-0.8s (with the dips' returns, 2.5 changes a second on average); each eases into place over about 0.2s.
+  const GAZE = { minGap: 0.2, maxGap: 0.8, x: 10, y: 9, dip: 0.95, dipChance: 0.25, dipHold: [0.25, 0.45] };
+  const gaze = { x: spring(), y: spring(), h: spring(1), next: 0.5, undip: -1 };
+  function stepGaze(t, dt) {
+    if (gaze.undip >= 0 && t >= gaze.undip) { gaze.h.target = 1; gaze.undip = -1; }
+    if (t >= gaze.next) {
+      if (Math.random() < GAZE.dipChance && gaze.undip < 0) {
+        gaze.h.target = GAZE.dip; gaze.undip = t + rand(...GAZE.dipHold);
+      } else {
+        gaze.x.target = rand(-GAZE.x, GAZE.x);
+        gaze.y.target = rand(-GAZE.y, GAZE.y);
+      }
+      gaze.next = t + rand(GAZE.minGap, GAZE.maxGap);
+    }
+    stepSpring(gaze.x, dt, 22, 0.9); stepSpring(gaze.y, dt, 22, 0.9); stepSpring(gaze.h, dt, 22, 0.9);
+  }
+
   // ------------------------------------------------------------------ eyes + blink
   // Open: an oval ring with an oval pupil hole (pupil nudged toward the nose). Blinking: the
   // ring squashes shut from the top toward a pivot low in the eye, then snaps to the closed
@@ -202,8 +222,9 @@
     const [cx, cy] = e.c, side = cx > 0 ? 1 : -1;
     const open = 1 - b;
     const ellipse = (x, y, rx, ry) => Array.from({ length: STEPS }, (_, k) => { const t = 2 * Math.PI * k / STEPS; return [x + rx * Math.cos(t), y + ry * Math.sin(t)]; });
-    // the pupil never changes: same size and place whether the eye is open or half shut
-    const pupil = ellipse(cx - side * EYE.pin, cy, EYE.prx, EYE.pry);
+    // the pupil is its own layer: blinking never changes it (the lid just covers it); only the
+    // pupil movement below moves it and briefly shortens it
+    const pupil = ellipse(cx - side * EYE.pin + gaze.x.v, cy + gaze.y.v, EYE.prx, EYE.pry * gaze.h.v);   // same offset for both: they move as a pair
     if (open > 0.22) {
       // the white opening: the eye outline squashed from the top toward a pivot low in the eye
       const pivot = cy + 0.3 * EYE.ry;
@@ -349,7 +370,7 @@
     if (FORCED) { S.yaw.v = FORCED[0]; S.pitch.v = FORCED[1]; }
     blinkAmount = FORCED_BLINK ?? (reduceMotion ? 0 : stepBlink(S.t));
     const nod = STILL || FORCED ? breathe(0) : breathe(S.t);
-    if (!reduceMotion && !FORCED) stepTilt(S.t, dt);
+    if (!reduceMotion && !FORCED) { stepTilt(S.t, dt); stepGaze(S.t, dt); }
     const roll = FORCED_ROLL ?? tilt.roll.v;
     render(S.yaw.v + tilt.yaw.v, S.pitch.v + tilt.pitch.v + nod, roll);
     if (!STILL) requestAnimationFrame(frame);

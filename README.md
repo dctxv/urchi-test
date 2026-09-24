@@ -4,7 +4,9 @@ A single-page mascot close-up: a compact, near-black, low-poly spiky cat head wi
 white rim, large open eyes and a slight pixelation, that turns to follow the cursor, blinks every few seconds
 (about 0.4s, occasionally twice), breathes with a slow nod, and every 2-5s makes a random
 curious head move: tilting to one side, swinging across to the other, or straightening,
-never tilting the same way twice in a row. Only the neutral face
+never tilting the same way twice in a row. The pupils dart as a pair about 2.5
+times a second: small smooth moves up, down, left and right, and brief dips to 95%
+height. Only the neutral face
 exists for now; the other expressions and their controls come later.
 
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a
