@@ -38,7 +38,7 @@ const inside = ([x, y], poly) => {
 // Newell's method on its (x, y, z) vertices.
 const ENV = k => process.env[k] !== undefined ? Number(process.env[k]) : undefined;
 const LIGHT = (() => { const l = [ENV('LX') ?? 0.18, ENV('LY') ?? 0.88, ENV('LZ') ?? 0.44], n = Math.hypot(...l); return l.map(v => v / n); })();   // x right, y up, z toward viewer
-const INFLATE = ENV('INFLATE') ?? 26, FACE_Y = 505, FACE_Z = ENV('FACE_Z') ?? 330, GAMMA = ENV('GAMMA') ?? 1.5;
+const INFLATE = ENV('INFLATE') ?? 26, DEPTH_POW = ENV('DEPTH_POW') ?? 0.75, FACE_Y = 505, FACE_Z = ENV('FACE_Z') ?? 330, GAMMA = ENV('GAMMA') ?? 1.2;
 const AX = DATA.axis;
 const sil = DATA.silhouette;
 function edgeDist([x, y]) {
@@ -50,7 +50,7 @@ function edgeDist([x, y]) {
   }
   return best;
 }
-const depth = p => { let z = INFLATE * Math.sqrt(edgeDist(p)); if (p[1] > FACE_Y) z = Math.min(z, FACE_Z); return z; };
+const depth = p => { let z = INFLATE * Math.pow(edgeDist(p), DEPTH_POW) * Math.pow(350, 0.5 - DEPTH_POW); if (p[1] > FACE_Y) z = Math.min(z, FACE_Z); return z; };
 function shadeOf(poly) {
   const v = poly.map(p => [p[0], -p[1], depth(p)]);
   let nx = 0, ny = 0, nz = 0;
