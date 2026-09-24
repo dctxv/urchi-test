@@ -174,7 +174,7 @@
       const l = Math.hypot(nx, ny, nz) || 1;
       if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
       const i = Math.pow(Math.max(0, (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / l), 1.2);
-      const g = Math.round(6 + 150 * i);
+      const g = Math.round(10 + 62 * i);   // near-black: planes range from #0A0A0A to about #484848
       el.style.display = '';
       el.setAttribute('fill', `rgb(${g},${g},${g})`);
       let pts = '';

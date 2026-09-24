@@ -1,6 +1,6 @@
 # urchi-test
 
-A single-page mascot close-up: a compact, monochrome, low-poly spiky cat head that
+A single-page mascot close-up: a compact, near-black, low-poly spiky cat head that
 turns to follow the cursor. The eyes and expression controls are parked for now.
 
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a
