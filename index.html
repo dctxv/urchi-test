@@ -101,7 +101,8 @@
   const polys = F.map(() => fills.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'polygon')));
 
   // ------------------------------------------------------------------ look
-  const LOOK = { yaw: 34 * D2R, pitchUp: 20 * D2R, pitchDown: 16 * D2R };
+  // the cursor at either screen edge swings the head most of the way round so its back shows
+  const LOOK = { yaw: 165 * D2R, pitchUp: 35 * D2R, pitchDown: 30 * D2R };
   const LIGHT = (() => { const l = [0.18, 0.88, 0.44], n = Math.hypot(...l); return l.map(v => v / n); })();   // view space: x right, y up, z toward viewer
   const PERSPECTIVE = params.has('ortho') ? Infinity : 2800;                                            // eye distance in mesh units
   const PIVOT_Y = MESH.pivot[1];                                                                        // turn about the middle of the head
