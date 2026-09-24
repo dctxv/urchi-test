@@ -84,8 +84,7 @@ const BACK_AXIS = [
   [235.5, 352],   // top-back corner
   [437, 218],     // upper back
   [680, 205],     // lower back, where the flat back of the skull ends
-  [818.8, 262],   // bottom-back corner
-  [853.5, 370],   // underside
+  [818.8, 262],   // bottom-back corner (no underside point below it: it made a keel under the chin)
 ];
 
 // ------------------------------------------------------------------ 1. clean the half
@@ -202,11 +201,57 @@ if (missing.length) throw new Error('no depth for: ' + missing.join(', '));
 const FRONT_GROW = Number(process.env.FRONT_GROW ?? 1.3), BACK_GROW = Number(process.env.BACK_GROW ?? 1.0);
 for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW;
 
+// ------------------------------------------------------------------ triangulate for drawing
+// Planes with more than three corners are rarely flat once they have depth, and drawn as one
+// polygon they can fold over themselves when the head turns (three corners on one line
+// become a zero-width spike). Each is split into triangles by ear clipping in its own best-fit
+// plane; the triangles keep their plane's index so the page shades them as one plane.
+const planeOf = [];
+{
+  const P3 = v => V3[v];
+  const out = [];
+  faces.forEach((f, gi) => {
+    if (f.length === 3) { out.push(f); planeOf.push(gi); return; }
+    let nx = 0, ny = 0, nz = 0;
+    f.forEach((a, k) => { const p = P3(a), q = P3(f[(k + 1) % f.length]); nx += (p[1] - q[1]) * (p[2] + q[2]); ny += (p[2] - q[2]) * (p[0] + q[0]); nz += (p[0] - q[0]) * (p[1] + q[1]); });
+    // 2D basis in the plane
+    const n = [nx, ny, nz], l = Math.hypot(...n); n.forEach((c, i) => n[i] = c / l);
+    const ref = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const u = [n[1] * ref[2] - n[2] * ref[1], n[2] * ref[0] - n[0] * ref[2], n[0] * ref[1] - n[1] * ref[0]];
+    const ul = Math.hypot(...u); u.forEach((c, i) => u[i] = c / ul);
+    const w = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+    const to2 = v => { const p = P3(v); return [p[0] * u[0] + p[1] * u[1] + p[2] * u[2], p[0] * w[0] + p[1] * w[1] + p[2] * w[2]]; };
+    const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    let ring = f.slice();
+    const sign = Math.sign(ring.reduce((acc, v, k) => { const a = to2(v), b = to2(ring[(k + 1) % ring.length]); return acc + a[0] * b[1] - b[0] * a[1]; }, 0)) || 1;
+    while (ring.length > 3) {
+      let best = -1, bestQ = -Infinity;
+      for (let k = 0; k < ring.length; k++) {
+        const a = to2(ring[(k + ring.length - 1) % ring.length]), b = to2(ring[k]), c = to2(ring[(k + 1) % ring.length]);
+        const ar = cross(a, b, c) * sign; if (ar <= 1e-6) continue;
+        // never cut along the centre line: the planes either side would both claim that diagonal
+        if (V3[ring[(k + ring.length - 1) % ring.length]][0] === AX && V3[ring[(k + 1) % ring.length]][0] === AX) continue;
+        const inside = ring.some((v, m) => { if (m === k || m === (k + 1) % ring.length || m === (k + ring.length - 1) % ring.length) return false; const p = to2(v); return cross(a, b, p) * sign > 0 && cross(b, c, p) * sign > 0 && cross(c, a, p) * sign > 0; });
+        if (inside) continue;
+        const e = [Math.hypot(b[0] - a[0], b[1] - a[1]), Math.hypot(c[0] - b[0], c[1] - b[1]), Math.hypot(a[0] - c[0], a[1] - c[1])];
+        const q = ar / (e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);   // prefer fat ears
+        if (q > bestQ) { bestQ = q; best = k; }
+      }
+      if (best < 0) throw new Error(`could not triangulate plane ${gi}`);
+      const k = best; out.push([ring[(k + ring.length - 1) % ring.length], ring[k], ring[(k + 1) % ring.length]]); planeOf.push(gi);
+      ring.splice(k, 1);
+    }
+    out.push(ring); planeOf.push(gi);
+  });
+  report.push(`triangulated ${faces.length} planes into ${out.length} triangles`);
+  faces = out;
+}
+
 // ------------------------------------------------------------------ 4. validate
 {
   const used = new Set(faces.flat());
   const dir = new Map();
-  for (const f of faces) f.forEach((a, k) => { const b = f[(k + 1) % f.length]; const e = `${a}>${b}`; if (dir.has(e)) throw new Error(`edge ${e} used twice in the same direction`); dir.set(e, 1); });
+  for (const f of faces) f.forEach((a, k) => { const b = f[(k + 1) % f.length]; const e = `${a}>${b}`; if (dir.has(e)) throw new Error(`edge ${e} used twice in the same direction: ` + faces.map((g, gi) => [g, gi]).filter(([g]) => g.some((x, j) => `${x}>${g[(j + 1) % g.length]}` === e)).map(([g, gi]) => `#${gi} plane ${planeOf[gi]} [${g}] ` + g.map(x => '(' + V3[x].map(n => Math.round(n)) + ')').join(' ')).join(' | ')); dir.set(e, 1); });
   for (const e of dir.keys()) { const [a, b] = e.split('>'); if (!dir.has(`${b}>${a}`)) throw new Error(`open edge ${a}-${b}: (${V3[a]}) to (${V3[b]})`); }
   const E = dir.size / 2, F = faces.length, Vn = used.size;
   if (Vn - E + F !== 2) throw new Error(`Euler characteristic ${Vn - E + F}, expected 2`);
@@ -214,7 +259,7 @@ for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW
   const seen = new Set([faces[0][0]]), stack = [faces[0][0]];
   while (stack.length) for (const n of adj.get(stack.pop()) || []) if (!seen.has(n)) { seen.add(n); stack.push(n); }
   if (seen.size !== Vn) throw new Error(`mesh has more than one piece (${seen.size} of ${Vn} vertices connected)`);
-  report.push(`closed surface: ${Vn} vertices, ${E} edges, ${F} planes, one piece`);
+  report.push(`closed surface: ${Vn} vertices, ${E} edges, ${F} triangles, one piece`);
 }
 
 // ------------------------------------------------------------------ output
@@ -227,6 +272,7 @@ const r1 = n => Math.round(n * 10) / 10;
 const mesh = {
   v: used.map(v => [r1(V3[v][0] - AX), r1(V3[v][1] - CY), r1(V3[v][2] - CZ)]),
   f: faces.map(f => f.map(v => newId.get(v))),
+  g: planeOf,   // the drawn plane each triangle belongs to (shaded as one)
   pivot: [0, r1((FRONT_TOP + FRONT_BOTTOM) / 2 - CY), 0],   // turn about the middle of the head, not the ear tips
   origin: [AX, CY, r1(CZ)],                                // where (0,0,0) sits in traced front-view coordinates
 };
@@ -237,4 +283,4 @@ const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0 || e < 0) throw new Error('index.html is missing the <!-- mesh:start --> / <!-- mesh:end --> markers');
 writeFileSync(indexPath, html.slice(0, s + START.length) + `\n<script id="mascot-mesh" type="application/json">${JSON.stringify(mesh)}</script>\n` + html.slice(e));
 if (process.argv.includes('--verbose')) report.forEach(l => console.log('  ' + l));
-console.log(`baked ${mesh.v.length} vertices, ${mesh.f.length} planes into index.html (${report.at(-1)})`);
+console.log(`baked ${mesh.v.length} vertices, ${new Set(planeOf).size} planes (${mesh.f.length} triangles) into index.html (${report.at(-1)})`);
