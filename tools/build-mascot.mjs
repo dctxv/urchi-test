@@ -1,69 +1,236 @@
 #!/usr/bin/env node
-// Bakes the mascot's 3D mesh into index.html.
+// Builds the mascot's 3D head mesh and bakes it into index.html.
 //
 //   node tools/build-mascot.mjs   # rewrite the <!-- mesh:start/end --> block in index.html
 //
-// The front planes come from tools/mascot-facets.json (traced from ref/head-half.png
-// by tools/trace-ref.mjs and mirrored). Each shared corner becomes one vertex, every
-// vertex gets a depth from how far it sits inside the outline (with the lower face
-// capped flat), and a mirrored, slightly deeper copy of the planes closes the back of
-// the head. The page rotates, culls, shades and draws that mesh as SVG polygons.
+// Inputs, both traced by tools/trace-ref.mjs:
+//   tools/mascot-facets.json  front planes of the right half, from ref/head-half.png
+//   tools/side-profile.json   outline rows of the side view, from ref/head-side.png
+//
+//  1. Clean the traced half into an exact planar mesh: corners the raster clipped short of
+//     a spike tip are merged into that tip, and every vertex that sits on a neighbour's
+//     edge (a T-junction) is inserted into that edge, so all planes meet corner to corner.
+//  2. Mirror it into the full front, find the outline (edges used by one plane), and close
+//     the head with a back shell that mirrors the front planes and shares every outline
+//     vertex, plus three extra vertices on the back centre line that carry the side profile.
+//  3. Give every vertex a depth: the centre line follows the side view exactly; the ear,
+//     spikes, cheeks and outline use the DEPTH table, read off the same side view.
+//  4. Check the result is one closed, consistently wound surface (every edge shared by
+//     exactly two planes in opposite directions, Euler characteristic 2) and bake it.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const DATA = JSON.parse(readFileSync(resolve(ROOT, 'tools/mascot-facets.json'), 'utf8'));
+const read = f => JSON.parse(readFileSync(resolve(ROOT, f), 'utf8'));
+const TRACE = read('tools/mascot-facets.json');
+const SIDE = read('tools/side-profile.json');
+const AX = TRACE.axis;
 
-const ENV = k => process.env[k] !== undefined ? Number(process.env[k]) : undefined;
-const INFLATE = ENV('INFLATE') ?? 26;        // depth scale: z = INFLATE * dist^DEPTH_POW (normalised so the centre lands near INFLATE*sqrt(350))
-const DEPTH_POW = ENV('DEPTH_POW') ?? 0.75;
-const FACE_Y = 505, FACE_Z = ENV('FACE_Z') ?? 330;   // below the brow line the front is capped flat
-const BACK = ENV('BACK') ?? 1.1;             // the skull behind is a little deeper than the face in front
-
-// ------------------------------------------------------------------ depth
-const sil = DATA.silhouette;
-function edgeDist([x, y]) {
-  let best = Infinity;
-  for (let i = 0, j = sil.length - 1; i < sil.length; j = i++) {
-    const [ax, ay] = sil[j], [bx, by] = sil[i]; const dx = bx - ax, dy = by - ay; const l = dx * dx + dy * dy;
-    const t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
-    best = Math.min(best, Math.hypot(ax + t * dx - x, ay + t * dy - y));
-  }
-  return best;
+// ------------------------------------------------------------------ side view calibration
+// Measured on ref/head-side.png: the head top sits on row 240, the underside lines meet
+// (behind the neck, which is ignored) at row 828, and the ear tip is at column 560. The
+// front view spans y 217 (top) to 897.5 (chin), which fixes the scale; with it the side
+// view's ear tip lands within 8 units of the front view's.
+const SIDE_TOP = 240, SIDE_BOTTOM = 828, SIDE_Z0 = 560;
+const FRONT_TOP = 217, FRONT_BOTTOM = 897.5;
+const S = (FRONT_BOTTOM - FRONT_TOP) / (SIDE_BOTTOM - SIDE_TOP);
+const rows = new Map(SIDE.rows.map(([y, l, r]) => [y, [l, r]]));
+function sideAt(yf) {   // [back, front] depth of the side outline at front-view height yf
+  const ys = SIDE_TOP + (yf - FRONT_TOP) / S, y0 = Math.floor(ys), t = ys - y0;
+  const a = rows.get(y0), b = rows.get(y0 + 1) || a;
+  return [0, 1].map(k => ((a[k] + (b[k] - a[k]) * t) - SIDE_Z0) * S);
 }
-const dome = p => INFLATE * Math.pow(edgeDist(p), DEPTH_POW) * Math.pow(350, 0.5 - DEPTH_POW);
-const frontZ = p => { let z = dome(p); if (p[1] > FACE_Y) z = Math.min(z, FACE_Z); return z; };
-const backZ = p => -BACK * dome(p);
 
-// ------------------------------------------------------------------ indexed mesh
-const AX = DATA.axis;
-const ys = sil.map(p => p[1]);
-const CY = (Math.min(...ys) + Math.max(...ys)) / 2;   // rotate about the head's centre
-const verts = [], index = new Map();
-const vid = (p, side) => {
-  const key = `${p[0]},${p[1]},${side}`;
-  if (!index.has(key)) {
-    const z = side === 'f' ? frontZ(p) : backZ(p);
-    index.set(key, verts.length);
-    verts.push([Math.round((p[0] - AX) * 10) / 10, Math.round((p[1] - CY) * 10) / 10, Math.round(z * 10) / 10]);
-  }
-  return index.get(key);
+// ------------------------------------------------------------------ depth table
+// Right-half vertices by traced position. Outline vertices have one depth; the others a
+// front depth and the depth of their twin on the back shell. Z is toward the viewer, in
+// front-view pixels, 0 = the ear tip's depth in the side view.
+const DEPTH = [
+  // outline
+  [902.5, 26, 0],          // ear tip
+  [654.5, 248.5, 0],       // inner ear base on the roof line
+  [865.5, 404, 60],        // where spike 1 meets the ear's outer edge
+  [1013, 395.5, 70],       // spike 1 tip   (side view: upper spike seen end-on, centred ~Z 69)
+  [903.5, 550.5, 50],      // notch between spikes 1 and 2
+  [986.5, 601, 45],        // spike 2 tip   (side view: lower spike, centred ~Z 44)
+  [893.5, 677, 40],        // notch between spikes 2 and 3
+  [952.5, 789.5, 40],      // spike 3 / jaw corner tip
+  [686, 855, 30],          // underside edge
+  [507, 217, 40],          // top of the head (side view: top edge runs from Z -241 to +94)
+  [507, 897.5, 6],         // chin, the lowest point
+  // interior: [x, y, front, back]
+  [714, 286, 127, -154],   // ear base, inner front / back (side view: ear edges pass Z -113 and +94 at the head top)
+  [810.5, 392, 60, -140],  // ear base, lower front / back
+  [854.5, 503, 185, -70],  // spike 1 base, front / back
+  [855, 612.5, 170, -70],  // spike 1-2 base
+  [862.5, 626.5, 150, -60],// spike 2 base
+  [855, 654, 160, -90],    // spike 3 base
+  [706.5, 385.5, 230, -310], // forehead
+  [784.5, 526.5, 210, -290], // brow corner
+  [751, 678.5, 210, -310], // cheek
+  [762, 698, 195, -300],   // cheek
+  [685.5, 695.5, 230, -340], // lower face
+  [781.5, 732, 165, -290], // jaw
+  [720, 800.5, 135, -280], // jaw
+  // centre line, where the side view is overridden: the lower face bulges past the straight
+  // line between the brow and the mouth corner, so the vertex at the bottom of the eye
+  // plane sits a little proud of the outline at its own height
+  [507, 752, 240, null],
+];
+// Extra vertices on the back centre line where the side view's back outline turns a corner:
+// [front-view y, side-view column]. The back shell has no drawn diagram, so these are free.
+const BACK_AXIS = [
+  [235.5, 352],   // top-back corner
+  [437, 218],     // upper back
+  [680, 205],     // lower back, where the flat back of the skull ends
+  [818.8, 262],   // bottom-back corner
+  [853.5, 370],   // underside
+];
+
+// ------------------------------------------------------------------ 1. clean the half
+const pts = [], pid = new Map();
+const id = p => { const k = `${p[0]},${p[1]}`; if (!pid.has(k)) { pid.set(k, pts.length); pts.push([p[0], p[1]]); } return pid.get(k); };
+let half = TRACE.half.map(poly => poly.map(id));
+
+const TJ = 4;   // px: a vertex this close to a neighbour's edge belongs on it
+const seg = (p, a, b) => {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+  return { t: ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2, d: Math.abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / Math.sqrt(l2) };
 };
-const onOutline = p => edgeDist(p) < 1.5;
-const faces = [];
-for (const f of DATA.facets) faces.push(f.poly.map(p => vid(p, 'f')));
-for (const f of DATA.facets) faces.push(f.poly.map(p => vid(p, onOutline(p) ? 'f' : 'b')).reverse());
+const dist = (a, b) => Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1]);
+const angleAt = (f, k) => {
+  const n = f.length, p = pts[f[k]], a = pts[f[(k + n - 1) % n]], b = pts[f[(k + 1) % n]];
+  const u = [a[0] - p[0], a[1] - p[1]], v = [b[0] - p[0], b[1] - p[1]];
+  return Math.acos(Math.max(-1, Math.min(1, (u[0] * v[0] + u[1] * v[1]) / (Math.hypot(...u) * Math.hypot(...v))))) * 180 / Math.PI;
+};
+const clean = f => { const g = f.filter((v, i) => v !== f[(i + 1) % f.length]); return new Set(g).size === g.length ? g : [...new Set(g)]; };
+const report = [];
 
-const mesh = { v: verts, f: faces, front: DATA.facets.length };
-const json = JSON.stringify(mesh);
+// 1a. clipped tips: a sharp corner used by one plane only, lying on a neighbour's edge
+//     within 50px of that edge's end, is the same tip the raster cut short
+{
+  const uses = new Map(); half.forEach(f => f.forEach(v => uses.set(v, (uses.get(v) || 0) + 1)));
+  const remap = new Map();
+  half.forEach(f => f.forEach((v, k) => {
+    if (uses.get(v) !== 1 || angleAt(f, k) > 40) return;
+    for (const g of half) for (let m = 0; m < g.length; m++) {
+      const a = g[m], b = g[(m + 1) % g.length]; if (g === f || a === v || b === v) continue;
+      const { t, d } = seg(pts[v], pts[a], pts[b]); if (d >= TJ || t <= 0 || t >= 1) continue;
+      const end = t > 0.5 ? b : a; if (dist(v, end) < 50) remap.set(v, end);
+    }
+  }));
+  for (const [v, to] of remap) report.push(`merged clipped tip (${pts[v]}) into (${pts[to]})`);
+  half = half.map(f => clean(f.map(v => remap.get(v) ?? v))).filter(f => f.length >= 3);
+}
+// 1b. T-junctions: insert every vertex lying on another plane's edge into that edge
+for (let pass = 0; pass < 6; pass++) {
+  const used = new Set(half.flat()); let changed = false;
+  half = half.map(f => {
+    const out = [];
+    f.forEach((a, k) => {
+      const b = f[(k + 1) % f.length]; out.push(a);
+      const mids = [];
+      for (const v of used) { if (f.includes(v)) continue; const { t, d } = seg(pts[v], pts[a], pts[b]); if (d < TJ && t > 0.01 && t < 0.99) mids.push([t, v]); }
+      mids.sort((x, y) => x[0] - y[0]).forEach(([, v]) => { out.push(v); changed = true; report.push(`inserted (${pts[v]}) into edge (${pts[a]})-(${pts[b]})`); });
+    });
+    return out;
+  });
+  if (!changed) break;
+}
+// 1c. wind every front plane the same way (clockwise on screen = facing the viewer)
+const area2 = f => f.reduce((s, v, k) => { const p = pts[v], q = pts[f[(k + 1) % f.length]]; return s + p[0] * q[1] - q[0] * p[1]; }, 0);
+half = half.map(f => area2(f) > 0 ? f : f.slice().reverse());
+
+// ------------------------------------------------------------------ 2. mirror + back shell
+const mirrorId = v => pts[v][0] === AX ? v : id([2 * AX - pts[v][0], pts[v][1]]);
+const front = [...half, ...half.map(f => f.map(mirrorId).reverse())];
+const edgeKey = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
+const count = new Map(); front.forEach(f => f.forEach((a, k) => { const e = edgeKey(a, f[(k + 1) % f.length]); count.set(e, (count.get(e) || 0) + 1); }));
+const outline = new Set();
+for (const [e, n] of count) if (n === 1) e.split('|').forEach(v => outline.add(+v));
+
+// 3D vertex list: front vertices keep their id; back twins are appended
+const V3 = pts.map(p => [p[0], p[1], null]);
+const twin = new Map();
+const backId = v => { if (outline.has(v)) return v; if (!twin.has(v)) { twin.set(v, V3.length); V3.push([pts[v][0], pts[v][1], null]); } return twin.get(v); };
+const back = front.map(f => f.map(backId).reverse());
+let faces = [...front, ...back];
+
+// extra back centre-line vertices, spliced into the edge they sit on
+function splitEdge(a, b, list) {
+  faces = faces.map(f => {
+    const out = [];
+    f.forEach((v, k) => { const w = f[(k + 1) % f.length]; out.push(v); if (v === a && w === b) out.push(...list); else if (v === b && w === a) out.push(...list.slice().reverse()); });
+    return out;
+  });
+}
+const axisFront = pts.map((p, v) => v).filter(v => pts[v][0] === AX && faces.some(f => f.includes(v)));
+const axisOrder = axisFront.slice().sort((a, b) => pts[a][1] - pts[b][1]);
+const top = axisOrder[0], chin = axisOrder.at(-1);
+const chain = [top, ...axisOrder.filter(v => !outline.has(v)).map(backId), chin];   // back centre line, top to chin
+for (const [y, col] of BACK_AXIS) {
+  const k = chain.findIndex((v, i) => i < chain.length - 1 && V3[v][1] < y && y < V3[chain[i + 1]][1]);
+  if (k < 0) throw new Error(`no back centre-line edge spans y=${y}`);
+  V3.push([AX, y, (col - SIDE_Z0) * S]);
+  splitEdge(chain[k], chain[k + 1], [V3.length - 1]);
+  chain.splice(k + 1, 0, V3.length - 1);
+}
+
+// ------------------------------------------------------------------ 3. depth
+const lookup = (x, y) => {
+  const mx = x < AX ? 2 * AX - x : x;
+  let best = null, bd = 14;
+  for (const e of DEPTH) { const d = Math.hypot(e[0] - mx, e[1] - y); if (d < bd) { bd = d; best = e; } }
+  return best;
+};
+const missing = [];
+pts.forEach(([x, y], v) => {
+  if (!faces.some(f => f.includes(v))) return;
+  const e = lookup(x, y);
+  if (outline.has(v)) { if (e && e.length === 3) V3[v][2] = e[2]; else missing.push(`outline (${x},${y})`); return; }
+  let zf, zb;
+  if (x === AX) { [zb, zf] = sideAt(y); if (e && e.length === 4) { zf = e[2] ?? zf; zb = e[3] ?? zb; } }
+  else if (e && e.length === 4) [, , zf, zb] = e;
+  else { missing.push(`interior (${x},${y})`); return; }
+  V3[v][2] = zf; V3[twin.get(v)][2] = zb;
+});
+if (missing.length) throw new Error('no depth for: ' + missing.join(', '));
+
+// ------------------------------------------------------------------ 4. validate
+{
+  const used = new Set(faces.flat());
+  const dir = new Map();
+  for (const f of faces) f.forEach((a, k) => { const b = f[(k + 1) % f.length]; const e = `${a}>${b}`; if (dir.has(e)) throw new Error(`edge ${e} used twice in the same direction`); dir.set(e, 1); });
+  for (const e of dir.keys()) { const [a, b] = e.split('>'); if (!dir.has(`${b}>${a}`)) throw new Error(`open edge ${a}-${b}: (${V3[a]}) to (${V3[b]})`); }
+  const E = dir.size / 2, F = faces.length, Vn = used.size;
+  if (Vn - E + F !== 2) throw new Error(`Euler characteristic ${Vn - E + F}, expected 2`);
+  const adj = new Map(); for (const e of dir.keys()) { const [a, b] = e.split('>').map(Number); (adj.get(a) || adj.set(a, []).get(a)).push(b); }
+  const seen = new Set([faces[0][0]]), stack = [faces[0][0]];
+  while (stack.length) for (const n of adj.get(stack.pop()) || []) if (!seen.has(n)) { seen.add(n); stack.push(n); }
+  if (seen.size !== Vn) throw new Error(`mesh has more than one piece (${seen.size} of ${Vn} vertices connected)`);
+  report.push(`closed surface: ${Vn} vertices, ${E} edges, ${F} planes, one piece`);
+}
 
 // ------------------------------------------------------------------ output
+// Re-index to used vertices; centre x on the axis, y on the traced image's midline (so the
+// page's viewBox stays put) and z on the middle of the head's depth.
+const used = [...new Set(faces.flat())].sort((a, b) => a - b);
+const newId = new Map(used.map((v, i) => [v, i]));
+const zs = used.map(v => V3[v][2]), CZ = (Math.min(...zs) + Math.max(...zs)) / 2, CY = 462;
+const r1 = n => Math.round(n * 10) / 10;
+const mesh = {
+  v: used.map(v => [r1(V3[v][0] - AX), r1(V3[v][1] - CY), r1(V3[v][2] - CZ)]),
+  f: faces.map(f => f.map(v => newId.get(v))),
+  pivot: [0, r1((FRONT_TOP + FRONT_BOTTOM) / 2 - CY), 0],   // turn about the middle of the head, not the ear tips
+  origin: [AX, CY, r1(CZ)],                                // where (0,0,0) sits in traced front-view coordinates
+};
 const indexPath = resolve(ROOT, 'index.html');
 const html = readFileSync(indexPath, 'utf8');
 const START = '<!-- mesh:start -->', END = '<!-- mesh:end -->';
 const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0 || e < 0) throw new Error('index.html is missing the <!-- mesh:start --> / <!-- mesh:end --> markers');
-writeFileSync(indexPath, html.slice(0, s + START.length) + `\n<script id="mascot-mesh" type="application/json">${json}</script>\n` + html.slice(e));
-console.log(`baked ${verts.length} vertices, ${faces.length} faces (${mesh.front} front) into index.html`);
+writeFileSync(indexPath, html.slice(0, s + START.length) + `\n<script id="mascot-mesh" type="application/json">${JSON.stringify(mesh)}</script>\n` + html.slice(e));
+if (process.argv.includes('--verbose')) report.forEach(l => console.log('  ' + l));
+console.log(`baked ${mesh.v.length} vertices, ${mesh.f.length} planes into index.html (${report.at(-1)})`);

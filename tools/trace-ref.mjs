@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Traces the half-face diagram (ref/head-half.png: blue planes, green edges, magenta
-// background, straight centre line on the left) into facet polygons and mirrors it.
+// Traces the two references the 3D head is built from (needs the playwright package + Chromium):
 //
-//   node tools/trace-ref.mjs        # writes tools/mascot-facets.json (needs the playwright package + Chromium)
+//   node tools/trace-ref.mjs
+//     ref/head-half.png -> tools/mascot-facets.json  front planes of the right half (blue planes,
+//                          green edges, magenta background, straight centre line on the left)
+//     ref/head-side.png -> tools/side-profile.json   leftmost/rightmost head pixel of every row of
+//                          the side view (grey background flood-filled from the border)
 //
-// Every blue region is walked into a polygon, shared vertices are snapped together,
-// vertices on the centre line are locked to the axis, and the half is reflected to
-// make the full symmetrical head. Eye centres come from the flat render in
-// ref/head-front.png (same scale) and are kept as constants below.
+// Every blue region is walked into a polygon, grown to the centre of its green edge line,
+// and shared corners are snapped together; vertices on the centre line lock to the axis.
+// tools/build-mascot.mjs does the rest (exact corner matching, mirroring, depth).
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -15,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const src = resolve(ROOT, 'ref/head-half.png'), out = resolve(ROOT, 'tools/mascot-facets.json');
 const minSize = 60, SNAP = 10, HALF_LINE = 2.4;   // green edge lines are ~5px wide: grow each plane by half of that
-const EYE_DX = 184, EYE_Y = 655;   // socket centres measured on ref/head-front.png, relative to the centre line
 const data = 'data:image/png;base64,' + readFileSync(src).toString('base64');
 const browser = await chromium.launch();
 const page = await browser.newPage();
@@ -127,15 +128,34 @@ const interior = (poly, i) => { const n = poly.length, a = poly[(i + n - 1) % n]
 const silPoly = straighten(dedupe(t.silhouette.map(p => snapped.get(p))), 3);
 const tips = silPoly.filter((p, i) => interior(silPoly, i) < Math.PI / 3.2);
 const mergeTips = poly => poly.map((p, i) => { if (interior(poly, i) >= Math.PI / 3.2) return p; const tip = tips.find(t => Math.hypot(t[0] - p[0], t[1] - p[1]) < 45); return tip ? [tip[0], tip[1]] : p; });
-const mirror = poly => poly.map(p => [2 * AXIS - p[0], p[1]]).reverse();
-const half = regions.map(r => ({ poly: dedupe(mergeTips(toPoly(r))) })).filter(f => f.poly.length >= 3);
-const facets = [...half, ...half.map(f => ({ poly: mirror(f.poly) }))];
-// full outline: the half outline is walked clockwise from its top centre point, so the
-// right-hand run goes top -> bottom; append its mirror bottom -> top.
-const halfSil = silPoly;
-const onAxis = halfSil.filter(p => p[0] === AXIS), right = halfSil.filter(p => p[0] > AXIS);
-const top = onAxis.reduce((a, p) => p[1] < a[1] ? p : a), bottom = onAxis.reduce((a, p) => p[1] > a[1] ? p : a);
-const silhouette = [top, ...right, bottom, ...right.map(p => [2 * AXIS - p[0], p[1]]).reverse()];
-const sockets = [{ cx: AXIS - EYE_DX, cy: EYE_Y }, { cx: AXIS + EYE_DX, cy: EYE_Y }];
-writeFileSync(out, JSON.stringify({ source: 'ref/head-half.png', size: [t.W, t.H], axis: AXIS, silhouette, facets, sockets }));
-console.log(`traced ${half.length} half-face planes (${facets.length} mirrored) -> tools/mascot-facets.json, axis x=${AXIS}`);
+const half = regions.map(r => dedupe(mergeTips(toPoly(r)))).filter(f => f.length >= 3);
+writeFileSync(out, JSON.stringify({ source: 'ref/head-half.png', axis: AXIS, half }));
+console.log(`traced ${half.length} right-half planes -> tools/mascot-facets.json, axis x=${AXIS}`);
+
+// ------------------------------------------------------------------ side view
+const side = await (async () => {
+  const b = await chromium.launch(); const pg = await b.newPage();
+  const img = 'data:image/png;base64,' + readFileSync(resolve(ROOT, 'ref/head-side.png')).toString('base64');
+  await pg.setContent(`<canvas id=c></canvas><img id=i src="${img}">`);
+  await pg.waitForFunction(() => document.getElementById('i').complete);
+  const rows = await pg.evaluate(() => {
+    const img = document.getElementById('i'), c = document.getElementById('c');
+    const W = c.width = img.naturalWidth, H = c.height = img.naturalHeight;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const px = g.getImageData(0, 0, W, H).data, N = W * H;
+    const lum = i => (px[i*4] + px[i*4+1] + px[i*4+2]) / 3;
+    const bg = [0, W - 1, (H - 1) * W, N - 1].map(lum).reduce((a, v) => a + v, 0) / 4;
+    const out = new Uint8Array(N), stack = [];
+    for (let x = 0; x < W; x++) stack.push(x, (H - 1) * W + x);
+    for (let y = 0; y < H; y++) stack.push(y * W, y * W + W - 1);
+    while (stack.length) { const i = stack.pop(); if (out[i] || Math.abs(lum(i) - bg) > 14) continue; out[i] = 1; const x = i % W, y = (i / W) | 0;
+      if (x > 0) stack.push(i - 1); if (x < W - 1) stack.push(i + 1); if (y > 0) stack.push(i - W); if (y < H - 1) stack.push(i + W); }
+    const rows = [];
+    for (let y = 0; y < H; y++) { let l = -1, r = -1; for (let x = 0; x < W; x++) if (!out[y * W + x]) { if (l < 0) l = x; r = x; } if (l >= 0) rows.push([y, l, r]); }
+    return rows;
+  });
+  await b.close();
+  return rows;
+})();
+writeFileSync(resolve(ROOT, 'tools/side-profile.json'), JSON.stringify({ source: 'ref/head-side.png', rows: side }));
+console.log(`traced ${side.length} side-view rows -> tools/side-profile.json`);
