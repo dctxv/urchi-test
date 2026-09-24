@@ -1,6 +1,7 @@
 # urchi-test
 
-A single-page mascot close-up: a compact, near-black, low-poly spiky cat head with a
+A single-page mascot close-up. On every load the eyes take one of 100 colourways from the
+LilGuy eyes trait sheet, weighted exactly as the sheet (seven bands, weights 1 to .2). The mascot: a compact, near-black, low-poly spiky cat head with a
 white rim, large open eyes and a slight pixelation, that turns to follow the cursor, blinks every few seconds
 (about 0.4s, occasionally twice), breathes with a slow nod, and every 2-5s makes a random
 curious head move: tilting to one side, swinging across to the other, or straightening,
@@ -38,4 +39,5 @@ Debug knobs: `index.html?still` freezes the hover and the cursor follow;
 `?yaw=90&pitch=0` fixes the angles in degrees (90 is the right side view);
 `?ortho` drops perspective for comparing against the reference views;
 `?blink=0.5` fixes how far the eyes are shut (0 open, 1 closed);
-`?roll=12` fixes the head tilt in degrees.
+`?roll=12` fixes the head tilt in degrees;
+`?col=denim` forces an eye colourway by name.

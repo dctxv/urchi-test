@@ -89,6 +89,132 @@
   const reduceMotion = STILL || matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (STILL) document.documentElement.dataset.still = '';
 
+  // ------------------------------------------------------------------ eye colours
+  // One colourway is drawn at random on every page load, weighted exactly as the LilGuy eyes
+  // trait sheet: 100 colourways in seven bands (weights 1, .8, .9, .7, .3, .5, .2; total 52.7).
+  // [name, weight, iris, pupil]  or, for the odd-eyed band, [name, weight, iris, pupil on the
+  // viewer's left, pupil on the viewer's right]. Only colours change: the eye and pupil shapes
+  // stay as they are. The iris colour fills the eye (and the closed-lid arc).
+  //   index.html?col=denim   force a colourway by name
+  const COLOURWAYS = [
+    // Base fourteen: weight 1.0
+    ["marmalade", 1.0, "#F99F05", "#6E6123"],
+    ["matcha", 1.0, "#C7FBA6", "#5E6E06"],
+    ["houseplant", 1.0, "#039442", "#71FF6F"],
+    ["terrarium", 1.0, "#6FF5D0", "#106E54"],
+    ["whale", 1.0, "#0059A3", "#0095FF"],
+    ["frog", 1.0, "#42DE86", "#436A16"],
+    ["denim", 1.0, "#6C92F8", "#102A6E"],
+    ["petunia", 1.0, "#F8AFFB", "#F006B4"],
+    ["lipgloss", 1.0, "#A10180", "#FC609C"],
+    ["jawbreaker", 1.0, "#F6759F", "#56031F"],
+    ["cherry", 1.0, "#AE0002", "#FF5252"],
+    ["pebble", 1.0, "#645252", "#A4A4A4"],
+    ["valentine", 1.0, "#DD06CB", "#7B1612"],
+    ["plum", 1.0, "#7260E6", "#622058"],
+    // Pale-pupil five: weight 0.8
+    ["gumball", 0.8, "#F20F07", "#FFFFFF"],
+    ["sprinkler", 0.8, "#59BF05", "#FFFFFF"],
+    ["pool", 0.8, "#05A8F9", "#FCEEEE"],
+    ["moon", 0.8, "#4028FF", "#EBFFFC"],
+    ["bubblegum", 0.8, "#F442E7", "#FFFFFF"],
+    // Light-iris twelve: weight 0.9
+    ["seaglass", 0.9, "#FBFBFB", "#167B61"],
+    ["laser", 0.9, "#FFFFFF", "#FF0000"],
+    ["snowball", 0.9, "#FFFFFF", "#5A79F3"],
+    ["smoothie", 0.9, "#FFECE0", "#CE0959"],
+    ["peach", 0.9, "#FDFBE2", "#F76E5D"],
+    ["goldfish", 0.9, "#E0F4FB", "#DE9109"],
+    ["seashell", 0.9, "#FCD9CF", "#070571"],
+    ["hydrangea", 0.9, "#E1BFE1", "#2722DB"],
+    ["cupcake", 0.9, "#F9FFB2", "#CA00CA"],
+    ["limeade", 0.9, "#EAFCC5", "#09B6CE"],
+    ["teacup", 0.9, "#F6E5A5", "#0D73F7"],
+    ["candycane", 0.9, "#9CFBD5", "#790C05"],
+    // Hard-black five: weight 0.7
+    ["ladybug", 0.7, "#C3110E", "#000000"],
+    ["avocado", 0.7, "#8BD67C", "#230606"],
+    ["submarine", 0.7, "#0F7BA9", "#000000"],
+    ["eggplant", 0.7, "#E202E8", "#0A0A0A"],
+    ["og", 0.7, "#FFFFFF", "#000000"],
+    // Neon thirty-seven: weight 0.3
+    ["lobster", 0.3, "#F95320", "#044A5F"],
+    ["pumpkin", 0.3, "#E87102", "#55FC6E"],
+    ["beachball", 0.3, "#F6FD21", "#1C9DE3"],
+    ["glowstick", 0.3, "#E9F905", "#360342"],
+    ["cactus", 0.3, "#C4F41D", "#530AEC"],
+    ["highlighter", 0.3, "#95F124", "#F50DCF"],
+    ["kiwi", 0.3, "#55F927", "#9F7717"],
+    ["flytrap", 0.3, "#15F817", "#5E045E"],
+    ["junebug", 0.3, "#14DA70", "#3516AF"],
+    ["sunset", 0.3, "#AE2400", "#F855FC"],
+    ["robin", 0.3, "#15ABF8", "#5E2304"],
+    ["jukebox", 0.3, "#024BDE", "#FB4CC3"],
+    ["starboy", 0.3, "#7B43F5", "#F6BD49"],
+    ["sonar", 0.3, "#126487", "#2EE605"],
+    ["guava", 0.3, "#84FB8E", "#F64982"],
+    ["blacklight", 0.3, "#6922F0", "#A3F410"],
+    ["taffy", 0.3, "#F474DC", "#E8FCA6"],
+    ["lilac", 0.3, "#7202FC", "#FDB0CE"],
+    ["nightlight", 0.3, "#7768FE", "#55FC87"],
+    ["crocus", 0.3, "#D602E8", "#FBF823"],
+    ["rosebush", 0.3, "#1E6935", "#FC7AC0"],
+    ["parakeet", 0.3, "#018335", "#23FAFB"],
+    ["glowworm", 0.3, "#F40DF8", "#19F515"],
+    ["spearmint", 0.3, "#9CFBCE", "#790572"],
+    ["motel", 0.3, "#FA486F", "#92FABE"],
+    ["buoy", 0.3, "#14ABD6", "#EEFA24"],
+    ["slushie", 0.3, "#C206AD", "#49F6D9"],
+    ["siren", 0.3, "#FD0C0D", "#2905E6"],
+    ["ember", 0.3, "#994400", "#00EEFF"],
+    ["jelly", 0.3, "#B60080", "#429EFB"],
+    ["popsicle", 0.3, "#71FEAE", "#5598FC"],
+    ["dragonfruit", 0.3, "#B60053", "#CFFA0F"],
+    ["hibiscus", 0.3, "#B6003C", "#05E605"],
+    ["jam", 0.3, "#C5013C", "#09CE93"],
+    ["candle", 0.3, "#973849", "#F7FBBC"],
+    ["calculator", 0.3, "#737373", "#09E151"],
+    ["doorbell", 0.3, "#BEBEBE", "#E42D06"],
+    // Muted thirteen: weight 0.5
+    ["postcard", 0.5, "#BE6A6A", "#76D8EB"],
+    ["flowerpot", 0.5, "#CC6262", "#3E4002"],
+    ["juicebox", 0.5, "#F6826C", "#95059B"],
+    ["mallard", 0.5, "#7B8401", "#0737A7"],
+    ["tomato", 0.5, "#60A611", "#B4040F"],
+    ["chamomile", 0.5, "#509156", "#F4C524"],
+    ["peacock", 0.5, "#02B0B6", "#7923FB"],
+    ["sandbox", 0.5, "#B8804A", "#F7F574"],
+    ["kite", 0.5, "#7DB5F4", "#C10787"],
+    ["puddle", 0.5, "#A7AFF6", "#837605"],
+    ["moth", 0.5, "#EC75F6", "#564803"],
+    ["strawberry", 0.5, "#FCB7F2", "#069A1E"],
+    ["flamingo", 0.5, "#FCB7C3", "#068F9A"],
+    // Odd-eyed fourteen: weight 0.2
+    ["static", 0.2, "#666666", "#000000", "#FFFFFF"],
+    ["eraser", 0.2, "#666666", "#FFEDED", "#000000"],
+    ["pinball", 0.2, "#B60207", "#D2F9F9", "#60D105"],
+    ["socks", 0.2, "#B865A8", "#76D8EB", "#8F1716"],
+    ["koi", 0.2, "#FE6873", "#0A0A0A", "#D0F910"],
+    ["marble", 0.2, "#D1D9FA", "#C11207", "#D20ADF"],
+    ["stoplight", 0.2, "#34F7FD", "#038C03", "#F91024"],
+    ["bumblebee", 0.2, "#FDCB21", "#0A0A0A", "#D10566"],
+    ["lilypad", 0.2, "#D1F63B", "#10812B", "#0F91F4"],
+    ["popcorn", 0.2, "#EAF66E", "#BB240A", "#0964E7"],
+    ["spumoni", 0.2, "#F6EAB9", "#177E39", "#2722DB"],
+    ["umbrella", 0.2, "#E7E3E9", "#F65F28", "#4F6BF8"],
+    ["sherbet", 0.2, "#E4F4E2", "#4A0A99", "#DB8405"],
+    ["neapolitan", 0.2, "#87493B", "#EB76DD", "#B7ABF3"],
+  ];
+  const colourway = (() => {
+    const forced = COLOURWAYS.find(c => c[0] === params.get('col'));
+    if (forced) return forced;
+    let r = Math.random() * COLOURWAYS.reduce((s, c) => s + c[1], 0);
+    for (const c of COLOURWAYS) { r -= c[1]; if (r < 0) return c; }
+    return COLOURWAYS[COLOURWAYS.length - 1];
+  })();
+  const EYE_COLOUR = { iris: colourway[2], pupilLeft: colourway[3], pupilRight: colourway[4] || colourway[3] };
+  document.documentElement.dataset.eyes = colourway[0];
+
   // ------------------------------------------------------------------ mesh
   const MESH = JSON.parse(document.getElementById('mascot-mesh').textContent);
   const V = MESH.v, F = MESH.f, G = MESH.g;   // triangles, and the drawn plane each belongs to
@@ -99,7 +225,7 @@
   const CELL = 7.5, VBX = -701.25, VBY = -674, VBW = 1402.5, VBH = 1230;
   const canvas = document.querySelector('.mascot-px'), ctx = canvas.getContext('2d', { willReadFrequently: true });
   canvas.width = VBW / CELL; canvas.height = VBH / CELL;
-  const COLOR = { base: '#040404', white: '#F2F0E9', pupil: '#070707' };
+  const COLOR = { base: '#040404' };
   const BASE = 1.5;   // dark base grown beyond the silhouette (units), so joins between planes show dark
   const rimMask = new Uint8Array((VBW / CELL) * (VBH / CELL));
 
@@ -321,7 +447,7 @@
       let zmax = -Infinity;
       const path = ring => { const p = new Path2D(); ring.forEach(([x, y], k) => { const q = project(onPlane([x, y])); if (q[2] > zmax) zmax = q[2]; k ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1]); }); p.closePath(); return p; };
       const shape = eyeShape(e, blinkAmount);
-      items.push({ z: 0, eye: { white: path(shape.white), pupil: shape.pupil && path(shape.pupil) } });
+      items.push({ z: 0, eye: { white: path(shape.white), pupil: shape.pupil && path(shape.pupil), left: e.c[0] < 0 } });
       items[items.length - 1].z = zmax + 10;
     });
     items.sort((a, b) => a.z - b.z);   // painter's order: far first
@@ -337,8 +463,8 @@
     for (const it of items) {
       if (it.tri) { ctx.fillStyle = ctx.strokeStyle = it.color; ctx.fill(it.tri); ctx.stroke(it.tri); continue; }
       ctx.save(); ctx.clip(head);                                     // a turned-away eye never sticks out past the head
-      ctx.fillStyle = COLOR.white; ctx.fill(it.eye.white);
-      if (it.eye.pupil) { ctx.clip(it.eye.white); ctx.fillStyle = COLOR.pupil; ctx.fill(it.eye.pupil); }   // the lid covers the pupil
+      ctx.fillStyle = EYE_COLOUR.iris; ctx.fill(it.eye.white);
+      if (it.eye.pupil) { ctx.clip(it.eye.white); ctx.fillStyle = it.eye.left ? EYE_COLOUR.pupilLeft : EYE_COLOUR.pupilRight; ctx.fill(it.eye.pupil); }   // the lid covers the pupil
       ctx.restore();
     }
     // hard pixel edge against the page (each pixel is head or background), then the white rim:
