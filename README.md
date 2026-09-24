@@ -12,7 +12,7 @@ exists for now; the other expressions and their controls come later.
 - `index.html` — the whole page. The head is a small 3D mesh (baked in as JSON) that a
   few lines of vanilla JS turn toward the cursor, back-face cull, flat-shade from one
   overhead light and paint far-to-near every frame into a tiny canvas (one pixel per
-  12-unit cell) shown scaled up with hard pixel edges, which gives the slight
+  9-unit cell) shown scaled up with hard pixel edges, which gives the slight
   pixelation. The white rim is built on that pixel grid: every background pixel touching
   the head turns white. The SVG underneath holds only the soft ground shadow. No build
   step; open the file or serve the folder.
