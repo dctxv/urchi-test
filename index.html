@@ -40,7 +40,8 @@
   /* no outlines: each plane is stroked thinly in its own colour only to seal the
      anti-aliasing hairlines between neighbours; planes are painted far-to-near */
   .mascot .fills polygon { stroke-width:0.7; stroke-linejoin:round; }
-  .mascot .eye { fill:#F2F0E9; fill-rule:evenodd; stroke:none; }
+  .mascot .eye { fill:#F2F0E9; stroke:none; }
+  .mascot .pupil { fill:#070707; stroke:none; }
 
   .hint {
     position:fixed; left:22px; top:calc(20px + env(safe-area-inset-top, 0px));
@@ -116,7 +117,18 @@
   const polys = F.map(() => fills.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'polygon')));
   // eyes: flat rings lying just in front of the face panel, painted in the same far-to-near list
   const EYES = MESH.eyes || [];
-  const eyeEls = EYES.map(() => { const e = fills.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'path')); e.setAttribute('class', 'eye'); e.setAttribute('clip-path', 'url(#head-clip)'); return e; });
+  // each eye: a group clipped to the head, holding the white and, on top, a separate solid
+  // pupil clipped to the white's current opening (so a closing lid covers it, never squashes it)
+  const SVGNS = 'http://www.w3.org/2000/svg', defs = document.querySelector('.mascot defs');
+  const eyeParts = EYES.map((_, k) => {
+    const g = fills.appendChild(document.createElementNS(SVGNS, 'g')); g.setAttribute('clip-path', 'url(#head-clip)');
+    const white = g.appendChild(document.createElementNS(SVGNS, 'path')); white.setAttribute('class', 'eye');
+    const clip = defs.appendChild(document.createElementNS(SVGNS, 'clipPath')); clip.id = `eye-open-${k}`;
+    const clipShape = clip.appendChild(document.createElementNS(SVGNS, 'path'));
+    const pupil = g.appendChild(document.createElementNS(SVGNS, 'path')); pupil.setAttribute('class', 'pupil'); pupil.setAttribute('clip-path', `url(#eye-open-${k})`);
+    return { g, white, clipShape, pupil };
+  });
+  const eyeEls = eyeParts.map(e => e.g);
   const clipPath = document.getElementById('head-clip-path');
   const els = [...polys, ...eyeEls];
 
@@ -181,21 +193,25 @@
   function eyeShape(e, b) {
     const [cx, cy] = e.c, side = cx > 0 ? 1 : -1;
     const open = 1 - b;
+    const ellipse = (x, y, rx, ry) => Array.from({ length: STEPS }, (_, k) => { const t = 2 * Math.PI * k / STEPS; return [x + rx * Math.cos(t), y + ry * Math.sin(t)]; });
+    // the pupil never changes: same size and place whether the eye is open or half shut
+    const pupil = ellipse(cx - side * EYE.pin, cy, EYE.prx, EYE.pry);
     if (open > 0.22) {
+      // the white opening: the eye outline squashed from the top toward a pivot low in the eye
       const pivot = cy + 0.3 * EYE.ry;
-      const ring = (ox, rx, ry) => Array.from({ length: STEPS }, (_, k) => { const t = 2 * Math.PI * k / STEPS; return [cx + ox + rx * Math.cos(t), pivot + (cy + ry * Math.sin(t) - pivot) * open]; });
-      return [ring(0, EYE.rx, EYE.ry), ring(-side * EYE.pin, EYE.prx, EYE.pry).reverse()];
+      const white = ellipse(cx, cy, EYE.rx, EYE.ry).map(([x, y]) => [x, pivot + (y - pivot) * open]);
+      return { white, pupil };
     }
-    // closed: tapered crescent, ends level, sagging down in the middle
+    // closed: tapered crescent, ends level, sagging down in the middle; no pupil
     const y0 = cy + 0.16 * EYE.ry, x0 = cx - 1.02 * EYE.rx, w = 2.04 * EYE.rx, top = 0.2 * EYE.ry, bottom = top + 0.2 * EYE.ry;
     const upper = Array.from({ length: ARC + 1 }, (_, k) => { const t = k / ARC; return [x0 + t * w, y0 + 4 * top * t * (1 - t)]; });
     const lower = Array.from({ length: ARC - 1 }, (_, k) => { const t = 1 - (k + 1) / ARC; return [x0 + t * w, y0 + 4 * bottom * t * (1 - t)]; });
-    return [[...upper, ...lower]];
+    return { white: [...upper, ...lower], pupil: null };
   }
   // A real blink is quick: ~60ms to close, a brief hold, ~90ms to open (opening is slower),
   // every 2.5-6s, now and then twice in a row.
   const BLINK = { close: 0.06, hold: 0.04, open: 0.09 };
-  const blink = { start: -1, next: 1.2 + Math.random() * 2 };
+  const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false };
   function stepBlink(t) {
     if (blink.start < 0) { if (t >= blink.next) blink.start = t; else return 0; }
     const e = t - blink.start, { close, hold, open } = BLINK;
@@ -203,7 +219,8 @@
     if (e < close + hold) return 1;
     if (e < close + hold + open) { const u = (e - close - hold) / open; return 1 - (1 - (1 - u) * (1 - u)); }   // eases open
     blink.start = -1;
-    blink.next = t + (Math.random() < 0.18 ? 0.12 : 2.5 + Math.random() * 3.5);
+    blink.double = !blink.double && Math.random() < 0.18;   // at most two in a row
+    blink.next = t + (blink.double ? 0.12 : 2.5 + Math.random() * 3.5);
     return 0;
   }
 
@@ -270,16 +287,17 @@
     // 3. eyes: project each ring through the same turn; hide an eye once its face turns away,
     //    and sort it just in front of the panel it lies on so nearer parts of the head cover it
     EYES.forEach((e, k) => {
-      const el = eyeEls[k];
+      const { g, white, clipShape, pupil } = eyeParts[k];
       const n = e.n, nx1 = n[0] * cy + n[2] * sy, nz1 = -n[0] * sy + n[2] * cy, nz2 = -n[1] * sp + nz1 * cp;
-      if (nz2 < 0.15) { el.style.display = 'none'; depth[F.length + k] = -1e9; return; }   // hidden once its face turns away
+      if (nz2 < 0.15) { g.style.display = 'none'; depth[F.length + k] = -1e9; return; }   // hidden once its face turns away
       const onPlane = ([x, y]) => [x, y, e.c[2] + e.dzdx * (x - e.c[0]) + e.dzdy * (y - e.c[1])];
-      let d = '', zmax = -Infinity;
-      for (const ring of eyeShape(e, blinkAmount)) {
-        d += 'M' + ring.map(p => { const q = project(onPlane(p)); if (q[2] > zmax) zmax = q[2]; return `${f1(q[0])},${f1(q[1])}`; }).join('L') + 'Z';
-      }
-      el.style.display = '';
-      el.setAttribute('d', d);
+      let zmax = -Infinity;
+      const path = ring => 'M' + ring.map(p => { const q = project(onPlane(p)); if (q[2] > zmax) zmax = q[2]; return `${f1(q[0])},${f1(q[1])}`; }).join('L') + 'Z';
+      const shape = eyeShape(e, blinkAmount);
+      const wd = path(shape.white);
+      white.setAttribute('d', wd); clipShape.setAttribute('d', wd);
+      if (shape.pupil) { pupil.style.display = ''; pupil.setAttribute('d', path(shape.pupil)); } else pupil.style.display = 'none';
+      g.style.display = '';
       depth[F.length + k] = zmax + 10;   // just in front of what it lies on
     });
     // painter's order: far first
