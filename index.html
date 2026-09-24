@@ -174,13 +174,13 @@
   // ------------------------------------------------------------------ breathing
   // A slow loop: the head tips up as it rises and down as it settles, like a gentle nod,
   // with the shadow tightening a touch as the head lifts.
-  const BREATH = { period: 4.5, nod: 3 * D2R, rise: 5 };   // seconds per breath, nod amplitude, rise in SVG units (~1.7px)
+  const BREATH = { period: 4.29, nod: 3.15 * D2R, rise: 5.25 };   // seconds per breath, nod amplitude, rise in SVG units (~1.75px)
   const headEl = document.querySelector('.mascot .head'), shadowEl = document.querySelector('.mascot .shadow');
   function breathe(t) {
     const w = reduceMotion ? 0 : Math.sin(2 * Math.PI * t / BREATH.period);   // +1 at the top of the in-breath
     headEl.setAttribute('transform', `translate(0 ${(-BREATH.rise * w).toFixed(2)})`);
-    shadowEl.style.transform = `scale(${(0.975 - 0.025 * w).toFixed(4)}, ${(0.965 - 0.035 * w).toFixed(4)})`;
-    shadowEl.style.opacity = (0.55 - 0.05 * w).toFixed(3);
+    shadowEl.style.transform = `scale(${(0.975 - 0.02625 * w).toFixed(4)}, ${(0.965 - 0.03675 * w).toFixed(4)})`;
+    shadowEl.style.opacity = (0.55 - 0.0525 * w).toFixed(3);
     return -BREATH.nod * w;   // negative pitch tips the face up
   }
 
