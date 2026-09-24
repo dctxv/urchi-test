@@ -207,7 +207,7 @@ for (const v of V3) if (v[2] !== null) v[2] *= v[2] > 0 ? FRONT_GROW : BACK_GROW
 // under the eye and lifted just enough that no part of the surface pokes through, so the eye
 // sits as a flat layer right in front of the face: it turns with the head but never wraps
 // over the facets. Sizes are in front-view pixels, measured off the sheet relative to the head.
-const EYE = { dx: 190, y: 645, rx: 100, ry: 110, pupilRx: 57, pupilRy: 74, pupilIn: 10, clear: 36, steps: 40 };   // clear: gap between the eye and the highest point of the face under it
+const EYE = { dx: 190, y: 615, rx: 100, ry: 110, pupilRx: 57, pupilRy: 74, pupilIn: 10, clear: 6, steps: 40 };    // clear: gap between the eye and the highest point of the face under it
 const eyeData = [];
 {
   // front surface depth at a front-view point: interpolate inside the front plane that covers it
